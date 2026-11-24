@@ -127,6 +127,8 @@ def main():
     findings=load_nuclei(out)
     from security_controls import classify_evidence
     waf=classify_evidence(args.waf_evidence or out/'waf-evidence.json',args.target)
+    from nuclei_diagnostics import diagnose
+    nuclei_diagnostics=diagnose(out/'nuclei_console.txt',coverage)
     manifest={
       'product':'Ronny WebScanner','upstream':{'name':'KP WebScanner','author':'Kevin Pirnie','repository':'https://github.com/kpirnie/webscanner','license':'MIT'},'version':args.version,'target':args.target,
       'profile':args.profile,'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -137,7 +139,8 @@ def main():
         'subdomain_lines': count_lines(out/'subdomains.txt'),
         'crawler_lines_not_validated':count_lines(out/'endpoints.txt'),
         'nuclei_findings':len(findings),
-        'nuclei_coverage':coverage
+        'nuclei_coverage':coverage,
+        'nuclei_error_diagnostics':nuclei_diagnostics
       },'limitations':['Exitcodes are captured for selected tools (including WhatWeb, httpx, DNSX, Naabu, Nmap, testssl.sh, Nikto, Katana, Arjun, Dalfox, SQLMap, Nuclei, ZAP and Wafw00f); remaining stages are not yet tracked consistently.',
        'OUTPUT_PRESENT does not mean a tool finished successfully.',
        'Nuclei scan comparison requires verified full coverage (no request errors).',
@@ -173,6 +176,7 @@ def main():
     body='</div><p class="note">⚠ Deze ontwikkelversie toont bewijsaanwezigheid, niet automatisch een geslaagde scan. Niet-uitgevoerde en mislukte stappen mogen niet worden gelezen als 0 bevindingen.</p></section>'
     if coverage.get('observed'):
         body+=f'<p class="note">Nuclei-dekking: {coverage["requests_completed"]}/{coverage["requests_expected"]} requests ({coverage["coverage_percent"]}%), fouten: {coverage["request_errors"]}. {esc(coverage["reason"])}</p>'
+    body+='<section id="diagnostics"><h2>🔍 Nuclei-foutdiagnose</h2><div class="panel"><div class="inside"><strong>'+esc(nuclei_diagnostics['classification'])+'</strong><p>Niet-toegewezen requestfouten: '+esc(str(nuclei_diagnostics['unattributed_request_errors']))+'</p><p>Logsignalen: '+esc(', '.join(nuclei_diagnostics['observed_log_signals']) or 'geen')+'</p><p>'+esc(nuclei_diagnostics['note'])+'</p></div></div></section>'
     body+='<section id="controls"><h2>🛡️ Security controls</h2><div class="panel"><div class="inside"><strong>CrowdSec AppSec: '+esc(waf['status'])+'</strong><p>'+esc(waf['note'])+'</p><p>HTTP 403 alone never proves CrowdSec enforcement. Scanner execution and coverage remain independent.</p></div></div></section>'
     body+='<section id="tools"><h2>🔎 Scannerstatussen</h2><input class="search" id="filter" placeholder="Zoek scanner of status..." aria-label="Zoek scanners"><div class="tabs"><button data-status="all" class="active">Alles</button><button data-status="COMPLETED">Completed</button><button data-status="OUTPUT_PRESENT">Bewijs</button><button data-status="FAILED">Failed</button><button data-status="PARTIAL">Review</button><button data-status="SKIPPED">Skipped</button><button data-status="NOT_APPLICABLE">N.v.t.</button><button data-status="UNVERIFIED">Onbevestigd</button></div><div class="panel" id="scanner-list">'
     for s in scans:
