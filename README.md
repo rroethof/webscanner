@@ -1,153 +1,125 @@
-# Ronny WebScanner
+# Ronny WebScanner v1.1.0-dev
 
-**Version 1.0.0** | Docker-based web security assessment suite
+Werkversie op basis van de bevroren v1.0.0. Dit is **ontwikkelcode**, geen productiegevalideerde release.
 
-Ronny WebScanner is a fork and further development of [KP WebScanner](https://github.com/kpirnie/webscanner) by **Kevin Pirnie**. This release retains the original 18-step scanning pipeline and adds Ronny WebScanner branding and a revised terminal/HTML interface. The upstream author's contribution remains credited under the MIT license.
+Gebaseerd op KP WebScanner (https://github.com/kpirnie/webscanner). Controleer en behoud de upstream licentie en attributie.
 
-> Only test systems that you own or are expressly authorized to assess. Active scans may generate substantial traffic or affect the target.
+## Nieuw
 
-## Version 1.0.0
-
-This is the **baseline release**, intended to be committed and tagged before any v1.1 development begins. There are **no scan profiles, `--check-deps`, Wafw00f, offline dashboard, or comparison of historical findings** in this version. Those are proposed for later releases.
-
-The HTML report uses UIkit assets from a CDN. An internet connection may therefore be needed to display all styling and icons.
-
-## Requirements
-
-- Docker with Buildx / BuildKit for building the image
-- Network access during build to download scanner dependencies
-- Docker host networking and `NET_RAW`/`NET_ADMIN` for raw packet scanners, if those modules are enabled
-- Enough disk, CPU and memory for Go tools and OWASP ZAP
+- `--profile baseline|webapp|extended`, standaard `extended` voor terugwaartse compatibiliteit.
+- `--check-deps` om toolbeschikbaarheid te controleren.
+- Wafw00f als extra fingerprinttool (`pip install wafw00f` in de image).
+- Nmap met beperkte serviceanalyse en gerichte NSE, zonder brede broadcast-/vulnselectie.
+- Nuclei-template-updates niet meer tijdens iedere scan.
+- Nmap, testssl.sh, Nuclei en ZAP hebben vastgelegde processtatussen (`scanner-exitcodes.tsv`).
+- Bad Bot Blocker controle presenteert geen gespoofte X-Forwarded-For-headers meer als bewijs van bron-IP-blokkering.
+- Nieuw **volledig offline** `report.html` met ingebouwde CSS, emoji-iconen, filters en scannerstatussen.
+- `findings.json` bevat genormaliseerde **Nuclei**-bevindingen en stabiele IDs.
+- `scan-manifest.json` registreert profiel, scannerstatussen, artefacten en beperkingen.
+- Het vorige UIkit-rapport blijft behouden als `report-legacy.html`.
+- `--previous /output/.../previous-run` vergelijkt aantoonbaar afgeronde Nuclei-scans.
+- `comparison.json` toont nieuwe, niet meer gedetecteerde en ongewijzigde Nuclei-bevindingen.
+- `report.dokuwiki.txt` is een DokuWiki-geschikte technische assessmentpagina met ISO 27001-referenties die handmatig beoordeeld moeten worden.
 
 ## Build
 
 ```bash
-docker buildx build --progress=plain --load -t ronny-webscanner:1.0.0 .
+docker buildx build --load -t ronny-webscanner:1.1.0-dev .
 ```
 
-## Usage
+## Run
 
 ```bash
 mkdir -p results
+docker run --rm --network host --cap-add NET_ADMIN --cap-add NET_RAW \
+  -v "$PWD/results:/output" ronny-webscanner:1.1.0-dev \
+  https://example.org -o example --profile baseline
+```
+
+Voor een vergelijking met een vorige scan moet die vorige map ook in de container bereikbaar zijn:
+
+```bash
+docker run --rm --network host --cap-add NET_ADMIN --cap-add NET_RAW \
+  -v "$PWD/results:/output" ronny-webscanner:1.1.0-dev \
+  https://example.org -o example --profile baseline \
+  --previous /output/example/example.org_20261123_190000
+```
+
+Vervang de voorbeeldmap door het daadwerkelijke pad van je vorige run. De vergelijking vindt alleen plaats bij hetzelfde target, hetzelfde profiel en aantoonbaar succesvolle Nuclei-runs. Verdwenen Nuclei-findings zijn nog niet automatisch verholpen kwetsbaarheden.
+
+Alleen scannen binnen expliciet geautoriseerde scope. Baseline voert nog steeds actieve netwerkrequests uit.
+
+## Statussen
+
+- `COMPLETED`: procesexitcode 0 met controleerbare afronding (momenteel Nmap, testssl, Nuclei en ZAP; Nuclei kan terecht nul findings hebben).
+- `FAILED`: procesexitcode niet-nul (dezelfde vier tools).
+- `OUTPUT_PRESENT`: output bestaat, maar exitstatus is nog niet betrouwbaar vastgelegd.
+- `PARTIAL`: mogelijk probleem in logoutput.
+- `SKIPPED`: scanner of groep uitgeschakeld.
+- `UNVERIFIED`: geen bewijsmateriaal of enkel console-output.
+
+Deze status zegt **niets** over het aantal kwetsbaarheden. Slechts Nuclei-JSON wordt naar `findings.json` geconverteerd.
+
+## Nog niet geïmplementeerd
+
+Playwright screenshots, Trivy/Syft SBOM- en imagescans, Interactsh self-hosted integratie, SSLyze, feroxbuster, historievergelijking voor andere scanners dan Nuclei, scheduler en volledige processtatusvastlegging voor alle tools. Zie `ROADMAP.md`.
+
+## Kwaliteitsgrenzen
+
+Het oude script bevat nog enkele `|| true`-constructies en gebruikt nog niet overal een processtatus. De bot-check heeft nog beperkingen, onder meer source-IP-whitelisting en het onderscheid tussen HTTP blokkade en onverwachte statuscodes. Volledige containerbuild en echte scans zijn hier niet uitgevoerd.
+
+## Licentie en attributie
+
+Ronny WebScanner is een fork en uitbreiding van [KP WebScanner](https://github.com/kpirnie/webscanner) van Kevin Pirnie, uitgebracht onder de MIT-licentie. De originele copyrightvermelding en licentietekst staan in [`LICENSE`](LICENSE). Zie ook [`NOTICE.md`](NOTICE.md).
+
+De scannerprogramma's die in de container worden geïnstalleerd, zijn afzonderlijke projecten met hun eigen licenties.
+
+## Develop fixpack: conservative scan status and load control
+
+This is a **development fixpack**, not a tagged v1.1.0 release. It follows the
+2026-11-24 BW02 `webapp` assessment, where Nuclei exited zero despite processing
+only 13,057 of 17,546 scheduled requests and reporting 148 request errors.
+
+- `baseline` and `webapp` default to Nuclei `-rl 10 -c 3`; `extended` defaults
+  to `-rl 20 -c 5`. Override using `--nuclei-rate N` and
+  `--nuclei-concurrency N` for explicitly authorized assessments.
+- Nuclei OAST/Interactsh is disabled by default using `-ni`.
+  Enable external callbacks *only if authorized* with `--allow-oast`.
+- Nuclei console statistics are assessed independently of process exit code.
+  Request errors, incomplete coverage, or unreachable targets yield `PARTIAL`.
+  When statistics are absent, completeness is not presumed.
+- Nikto error-limit termination is `PARTIAL`; Arjun targeting excludes common
+  static assets and stays in the requested hostname. Arjun per-target errors
+  are treated as `PARTIAL`.
+- Dalfox runs only on discovered same-host URLs containing query parameters;
+  otherwise status is `NOT_APPLICABLE`. This does not assert that XSS is absent.
+- WPScan reports `NOT_APPLICABLE` when WordPress is not detected.
+- HTML and DokuWiki reports show observed Nuclei request coverage and scan
+  limitations. Nuclei comparisons refuse to close findings if either scan
+  lacks verified successful completion.
+
+Example (authorized target):
+
+```sh
+docker buildx build --load -t webscanner:v1.1.0-dev-fixes .
+docker run --rm webscanner:v1.1.0-dev-fixes --check-deps
 
 docker run --rm --network host \
   --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v "$PWD/results:/output" \
-  ronny-webscanner:1.0.0 \
-  https://example.org -o example
+  -v "$HOME/webscanner/results:/output" \
+  webscanner:v1.1.0-dev-fixes \
+  https://example.org --profile webapp \
+  --skip-sqlmap --skip-zap --skip-botblocker \
+  -o webapp-review
 ```
 
-A more limited run that skips several active test modules:
+`scanner-status.tsv` contains explicit `PARTIAL` and `NOT_APPLICABLE`
+classification overrides and `scanner-exitcodes.tsv` records selected tool
+exit codes. These support audit trails but do not replace human validation.
 
-```bash
-docker run --rm --network host \
-  --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v "$PWD/results:/output" \
-  ronny-webscanner:1.0.0 \
-  https://example.org -o baseline \
-  --skip-brute --skip-arjun --skip-xss \
-  --skip-sqlmap --skip-osv --skip-zap --skip-botblocker
+Run local tests:
+
+```sh
+bash -n scan.sh
+python3 -m unittest discover -s tests -v
 ```
-
-**Note:** This is not a formal non-invasive baseline profile: Nikto, Nmap and Nuclei still send active requests unless separately disabled.
-
-List command-line options:
-
-```bash
-docker run --rm ronny-webscanner:1.0.0 --help
-```
-
-## Scan pipeline
-
-| Step | Function | Tools |
-| --- | --- | --- |
-| 1 | Fingerprinting | WhatWeb, httpx |
-| 2 | Passive reconnaissance | Shodan, Censys (API keys optional) |
-| 3 | Subdomains | Subfinder, httpx |
-| 4 | DNS records | dnsx |
-| 5 | Open ports | Naabu |
-| 6 | Services and NSE | Nmap |
-| 7 | TLS configuration | testssl.sh |
-| 8 | HTTP security headers | Mozilla Observatory |
-| 9 | Web-server checks | Nikto |
-| 10 | CMS detection | WPScan for detected WordPress |
-| 11 | Content and endpoints | Katana, Gobuster, ffuf |
-| 12 | Parameters | Arjun |
-| 13 | XSS | Dalfox |
-| 14 | SQL injection | SQLMap |
-| 15 | Dependencies | OSV-Scanner (if manifests are found) |
-| 16 | Template vulnerability checks | Nuclei |
-| 17 | Bad-bot-blocker validation | HTTP test requests |
-| 18 | Dynamic web scanning | OWASP ZAP |
-
-The named tools do not guarantee coverage of every vulnerability category. Absence of findings is not proof that the target is secure. In v1.0 some scanners may fail or time out without a distinct status in the summary, so always examine the raw scanner outputs.
-
-## Command-line options
-
-| Option | Description |
-| --- | --- |
-| `-o PATH` | Save under `/output/PATH/<host>_<timestamp>/` |
-| `--severity LEVEL` | Nuclei severities, default `low,medium,high,critical` |
-| `--bot-sample N` | Bad bot sample size, default 50 |
-| `--skip-fingerprint` | WhatWeb and httpx |
-| `--skip-recon` | Shodan and Censys |
-| `--skip-subdomains` | Subfinder |
-| `--skip-dns` | dnsx |
-| `--skip-ports` | Naabu |
-| `--skip-nmap` | Nmap |
-| `--skip-ssl` | testssl.sh |
-| `--skip-headers` | HTTP Observatory |
-| `--skip-nikto` | Nikto |
-| `--skip-cms` | CMS detection and WPScan |
-| `--skip-crawl` | Katana |
-| `--skip-brute` | Gobuster and ffuf |
-| `--skip-arjun` | Arjun |
-| `--skip-xss` | Dalfox |
-| `--skip-sqlmap` | SQLMap |
-| `--skip-osv` | OSV-Scanner |
-| `--skip-nuclei` | Nuclei |
-| `--skip-botblocker` | Bad-bot-blocker validation |
-| `--skip-zap` | OWASP ZAP |
-| `--help` | Show CLI help |
-
-## Optional credentials
-
-Set `WPSCAN_API_TOKEN`, `SHODAN_API_KEY`, and `CENSYS_APP_ID` / `CENSYS_TOKEN` with Docker `-e` if you use the corresponding integrations. Never commit API keys to the repository.
-
-## Results
-
-With `-o`, the scanner creates a timestamped output directory containing `scan.log`, `report.html` and the individual tools' results, where produced. For example:
-
-```text
-results/
-└── example/
-    └── example.org_20261124_060000/
-        ├── scan.log
-        ├── report.html
-        ├── nmap.txt
-        ├── nmap.xml
-        ├── testssl.txt
-        ├── testssl.json
-        ├── nuclei.txt
-        ├── nuclei.json
-        └── ...
-```
-
-Individual files may be absent when scanners are skipped or have no output. The report is a convenience overview, not a replacement for validation of original evidence.
-
-## Known limitations in v1.0
-
-- Several scanner steps use tolerant error handling; a displayed `done` does not always mean the scan completed successfully.
-- Broad Nmap NSE selection may cause timeouts.
-- IP-based bot-blocker checks that rely on `X-Forwarded-For` cannot reliably establish source-IP blocking. Proxy whitelisting can also influence results.
-- Counting findings by text patterns can overcount or misclassify results.
-- The HTML dashboard loads UIkit from a third-party CDN.
-- Scanner versions and Nuclei templates are not fully pinned for reproducible builds.
-
-These items are candidates for v1.1 and later, **not features of v1.0**.
-
-## Attribution and license
-
-This project is based on **[KP WebScanner](https://github.com/kpirnie/webscanner)**, originally developed by **Kevin Pirnie** (Copyright (c) 2026 Kevin Pirnie). This fork is developed and branded by **Ronny Roethof**, starting November 2026. The project is distributed under the [MIT License](LICENSE); see [NOTICE.md](NOTICE.md) for the origin and attribution statement.
-
-External scanners and libraries retain their respective licenses. The project's MIT license does not supersede their licenses.

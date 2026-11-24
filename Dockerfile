@@ -2,8 +2,8 @@
 # =============================================================================
 # Ronny WebScanner - based on KP WebScanner (Kevin Pirnie, MIT)
 # Original: https://github.com/kpirnie/webscanner
-# Version: 1.0.0
-# Build: DOCKER_BUILDKIT=1 docker build --progress=plain -t ronny-webscanner:1.0.0 .
+# Version: 1.1.0-dev
+# Build: DOCKER_BUILDKIT=1 docker build --progress=plain -t ronny-webscanner:1.1.0-dev .
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -98,7 +98,7 @@ RUN curl -fsSL --retry 3 --retry-all-errors \
 
 # Python applications in a dedicated virtual environment.
 RUN python3 -m venv /opt/scanner-venv \
-    && /opt/scanner-venv/bin/pip install --no-cache-dir arjun shodan censys
+    && /opt/scanner-venv/bin/pip install --no-cache-dir arjun shodan censys wafw00f
 
 # WhatWeb
 RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/whatweb \
@@ -153,6 +153,9 @@ COPY --from=go-builder /go/bin/osv-scanner /usr/local/bin/osv-scanner
 # Fetch templates at build time; missing templates should fail the image build.
 RUN nuclei -update-templates -silent \
     && test -d /root/nuclei-templates
+
+# Offline report generator
+COPY reporting/ /usr/local/lib/ronny-webscanner/reporting/
 
 # Scanner entrypoint
 COPY scan.sh /usr/local/bin/scan.sh
