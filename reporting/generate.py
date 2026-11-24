@@ -109,6 +109,7 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--out',required=True);ap.add_argument('--target',required=True)
     ap.add_argument('--profile',default='extended');ap.add_argument('--version',default='dev')
     ap.add_argument('--skipped',action='append',default=[]);ap.add_argument('--previous',default=None)
+    ap.add_argument('--waf-evidence',default=None,help='JSON with manually correlated CrowdSec and proxy log evidence')
     args=ap.parse_args();out=pathlib.Path(args.out);out.mkdir(parents=True,exist_ok=True)
     skipped=set(args.skipped)
     exitcodes={}
@@ -124,9 +125,13 @@ def main():
         status,detail=status_for(out,name,group,files,skipped,exitcodes,overrides,coverage)
         scans.append({'name':name,'title':display,'status':status,'note':detail,'files':[x for x in files if (out/x).is_file()]})
     findings=load_nuclei(out)
+    from security_controls import classify_evidence
+    waf=classify_evidence(args.waf_evidence or out/'waf-evidence.json',args.target)
     manifest={
       'product':'Ronny WebScanner','upstream':{'name':'KP WebScanner','author':'Kevin Pirnie','repository':'https://github.com/kpirnie/webscanner','license':'MIT'},'version':args.version,'target':args.target,
       'profile':args.profile,'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+       'security_controls':{'crowdsec_appsec':waf},
+       'assessment_dimensions':{'execution':'SEE_SCANNERS','coverage':'SEE_NUCLEI_COVERAGE','security_control':waf['status']},
       'skipped_groups':sorted(skipped),'scanners':scans,'metrics':{
         'open_ports_lines': count_lines(out/'ports.txt'),
         'subdomain_lines': count_lines(out/'subdomains.txt'),
@@ -168,6 +173,7 @@ def main():
     body='</div><p class="note">⚠ Deze ontwikkelversie toont bewijsaanwezigheid, niet automatisch een geslaagde scan. Niet-uitgevoerde en mislukte stappen mogen niet worden gelezen als 0 bevindingen.</p></section>'
     if coverage.get('observed'):
         body+=f'<p class="note">Nuclei-dekking: {coverage["requests_completed"]}/{coverage["requests_expected"]} requests ({coverage["coverage_percent"]}%), fouten: {coverage["request_errors"]}. {esc(coverage["reason"])}</p>'
+    body+='<section id="controls"><h2>🛡️ Security controls</h2><div class="panel"><div class="inside"><strong>CrowdSec AppSec: '+esc(waf['status'])+'</strong><p>'+esc(waf['note'])+'</p><p>HTTP 403 alone never proves CrowdSec enforcement. Scanner execution and coverage remain independent.</p></div></div></section>'
     body+='<section id="tools"><h2>🔎 Scannerstatussen</h2><input class="search" id="filter" placeholder="Zoek scanner of status..." aria-label="Zoek scanners"><div class="tabs"><button data-status="all" class="active">Alles</button><button data-status="COMPLETED">Completed</button><button data-status="OUTPUT_PRESENT">Bewijs</button><button data-status="FAILED">Failed</button><button data-status="PARTIAL">Review</button><button data-status="SKIPPED">Skipped</button><button data-status="NOT_APPLICABLE">N.v.t.</button><button data-status="UNVERIFIED">Onbevestigd</button></div><div class="panel" id="scanner-list">'
     for s in scans:
         links=''.join(f'<a href="{esc(n,quote=True)}">{esc(n)}</a>' for n in s['files'] if n not in {'scan.log'})
