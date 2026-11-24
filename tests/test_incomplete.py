@@ -19,6 +19,18 @@ class IncompleteCoverageTests(unittest.TestCase):
             self.assertEqual(m['metrics']['nuclei_coverage']['coverage_percent'],74.4)
             self.assertIn('148', (out/'report.html').read_text())
             self.assertIn('Controledekking', (out/'report.dokuwiki.txt').read_text())
+    def test_nuclei_errors_are_not_attributed_to_waf(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=pathlib.Path(d)/'run'
+            m=self.produce(out)
+            diagnostics=m['metrics']['nuclei_error_diagnostics']
+            self.assertEqual(diagnostics['reported_request_errors'],148)
+            self.assertEqual(diagnostics['unattributed_request_errors'],148)
+            self.assertEqual(diagnostics['classification'],'UNKNOWN')
+            self.assertEqual(m['security_controls']['crowdsec_appsec']['status'],'UNVERIFIED')
+            self.assertIn('Nuclei-foutdiagnose',(out/'report.dokuwiki.txt').read_text())
+            self.assertIn('Nuclei-foutdiagnose',(out/'report.html').read_text())
+
     def test_unverified_nuclei_does_not_close_findings(self):
         with tempfile.TemporaryDirectory() as d:
             base=pathlib.Path(d); old=base/'old'; new=base/'new'
