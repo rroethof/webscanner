@@ -340,8 +340,9 @@ section "4/18 — DNS Enumeration"
 
 if [[ "${SKIP_DNS}" == "false" ]]; then
     info "dnsx..."
+    printf '%s\n' "${TARGET_HOST}" > "${OUT_DIR}/dns-targets.txt"
     if run_logged dnsx "${OUT_DIR}/dnsx_console.txt" \
-        dnsx -d "${TARGET_HOST}" \
+        dnsx -l "${OUT_DIR}/dns-targets.txt" \
         -a -aaaa -cname -mx -ns -txt -resp \
         -o "${OUT_DIR}/dns.txt"; then
         ok "dnsx process finished"
