@@ -25,6 +25,17 @@ def export_report(out:Path, manifest:dict, findings:list, comparison=None):
           '', '^ Scanner ^ Status ^ Toelichting ^']
     for s in manifest['scanners']:
         rows.append('| '+clean(s['title'])+' | '+clean(s['status'])+' | '+clean(s['note'])+' |')
+    waf=manifest.get('security_controls',{}).get('crowdsec_appsec',{})
+    rows.extend(['', '===== Security controls (afzonderlijke beoordeling) =====',
+                 'Scanneruitvoering en testdekking blijven onafhankelijk van de beveiligingscontrole.',
+                 '^ Controle ^ Status ^ Toelichting ^',
+                 '| CrowdSec AppSec | '+clean(waf.get('status','UNVERIFIED'))+' | '+clean(waf.get('note','Geen gecorreleerd bewijs aangeleverd'))+' |'])
+    for event in waf.get('events', []):
+        rows.append('  * Alert '+clean(event.get('crowdsec_alert_id',''))+
+                    ', regel '+clean(event.get('crowdsec_rule',''))+
+                    ', CrowdSec-bewijs: '+clean(event.get('crowdsec_alert_reference',''))+
+                    ', proxybewijs: '+clean(event.get('proxy_log_reference','')))
+    rows.append('Een HTTP 403 zonder gekoppeld CrowdSec-alert en reverse-proxybewijs is geen bewezen CrowdSec-blokkering.')
     rows.extend(['','===== Nuclei-bevindingen =====','',
                  '^ Severity ^ Omschrijving ^ Getroffen URL ^ Referentie ^'])
     for f in findings:
