@@ -188,7 +188,9 @@ python3 -m unittest discover -s tests -v
 
 De tests vervangen geen volledige Dockerbuild of gecontroleerde praktijkbeproeving. Deze hardening-wijzigingen zijn nog niet als stabiele v1.1.0-release gevalideerd.
 
-De belangrijkste resterende werkzaamheden zijn volledige exitcode- en timingregistratie, verdere redirect- en scopebeveiliging, betrouwbare verwerking van Nikto/Arjun/Dalfox, en uitgebreidere rapportage. Zie [ROADMAP.md](ROADMAP.md) voor de ontwikkelplanning.
+Meerdere kernscanners leggen nu hun werkelijke procesexitcode vast via `run_logged`, waaronder WhatWeb, httpx, DNSX, Naabu, Nmap, testssl.sh, Nikto, Katana, Arjun, Dalfox, SQLMap, Nuclei en Wafw00f. Exitcode 0 bewijst op zichzelf geen volledige kwetsbaarheidsdekking.
+
+De belangrijkste resterende werkzaamheden zijn exitcode- en timingregistratie voor de overige stappen, verdere redirect- en scopebeveiliging, betrouwbare verwerking van Nikto/Arjun/Dalfox en uitgebreidere rapportage. Zie [ROADMAP.md](ROADMAP.md) voor de ontwikkelplanning.
 
 ## Licentie en herkomst
 
