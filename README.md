@@ -1,134 +1,137 @@
-# Ronny WebScanner v1.1.0-dev
+# Ronny WebScanner
 
-Werkversie op basis van de bevroren v1.0.0. Dit is **ontwikkelcode**, geen productiegevalideerde release.
+**Status:** v1.1.0-dev, in ontwikkeling. De stabiele versie is `v1.0.0`.
 
-Gebaseerd op KP WebScanner (https://github.com/kpirnie/webscanner). Controleer en behoud de upstream licentie en attributie.
+Ronny WebScanner is een Docker-gebaseerde verzameling tools voor technische security-assessments van webapplicaties en hun publicatieomgeving. Het project is een fork van [KP WebScanner](https://github.com/kpirnie/webscanner) van Kevin Pirnie.
 
-## Nieuw
+De scanner verzamelt technisch bewijs en helpt bij de beoordeling daarvan. Een scan zonder bevindingen is geen garantie dat een applicatie veilig is.
 
-- `--profile baseline|webapp|extended`, standaard `extended` voor terugwaartse compatibiliteit.
-- `--check-deps` om toolbeschikbaarheid te controleren.
-- Wafw00f als extra fingerprinttool (`pip install wafw00f` in de image).
-- Nmap met beperkte serviceanalyse en gerichte NSE, zonder brede broadcast-/vulnselectie.
-- Nuclei-template-updates niet meer tijdens iedere scan.
-- Nmap, testssl.sh, Nuclei en ZAP hebben vastgelegde processtatussen (`scanner-exitcodes.tsv`).
-- Bad Bot Blocker controle presenteert geen gespoofte X-Forwarded-For-headers meer als bewijs van bron-IP-blokkering.
-- Nieuw **volledig offline** `report.html` met ingebouwde CSS, emoji-iconen, filters en scannerstatussen.
-- `findings.json` bevat genormaliseerde **Nuclei**-bevindingen en stabiele IDs.
-- `scan-manifest.json` registreert profiel, scannerstatussen, artefacten en beperkingen.
-- Het vorige UIkit-rapport blijft behouden als `report-legacy.html`.
-- `--previous /output/.../previous-run` vergelijkt aantoonbaar afgeronde Nuclei-scans.
-- `comparison.json` toont nieuwe, niet meer gedetecteerde en ongewijzigde Nuclei-bevindingen.
-- `report.dokuwiki.txt` is een DokuWiki-geschikte technische assessmentpagina met ISO 27001-referenties die handmatig beoordeeld moeten worden.
+> Gebruik de scanner uitsluitend voor systemen waarvoor je expliciet toestemming hebt. Sommige profielen voeren actieve, potentieel belastende controles uit.
 
-## Build
+## Snel starten
+
+Bouw de ontwikkelversie vanuit deze branch:
 
 ```bash
 docker buildx build --load -t ronny-webscanner:1.1.0-dev .
 ```
 
-## Run
+Controleer of de benodigde tools in de container beschikbaar zijn:
+
+```bash
+docker run --rm ronny-webscanner:1.1.0-dev --check-deps
+```
+
+Voer een beperkte scan uit op een geautoriseerd doel:
 
 ```bash
 mkdir -p results
-docker run --rm --network host --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v "$PWD/results:/output" ronny-webscanner:1.1.0-dev \
-  https://example.org -o example --profile baseline
-```
-
-Voor een vergelijking met een vorige scan moet die vorige map ook in de container bereikbaar zijn:
-
-```bash
-docker run --rm --network host --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v "$PWD/results:/output" ronny-webscanner:1.1.0-dev \
-  https://example.org -o example --profile baseline \
-  --previous /output/example/example.org_20261123_190000
-```
-
-Vervang de voorbeeldmap door het daadwerkelijke pad van je vorige run. De vergelijking vindt alleen plaats bij hetzelfde target, hetzelfde profiel en aantoonbaar succesvolle Nuclei-runs. Verdwenen Nuclei-findings zijn nog niet automatisch verholpen kwetsbaarheden.
-
-Alleen scannen binnen expliciet geautoriseerde scope. Baseline voert nog steeds actieve netwerkrequests uit.
-
-## Statussen
-
-- `COMPLETED`: procesexitcode 0 met controleerbare afronding (momenteel Nmap, testssl, Nuclei en ZAP; Nuclei kan terecht nul findings hebben).
-- `FAILED`: procesexitcode niet-nul (dezelfde vier tools).
-- `OUTPUT_PRESENT`: output bestaat, maar exitstatus is nog niet betrouwbaar vastgelegd.
-- `PARTIAL`: mogelijk probleem in logoutput.
-- `SKIPPED`: scanner of groep uitgeschakeld.
-- `UNVERIFIED`: geen bewijsmateriaal of enkel console-output.
-
-Deze status zegt **niets** over het aantal kwetsbaarheden. Slechts Nuclei-JSON wordt naar `findings.json` geconverteerd.
-
-## Nog niet geïmplementeerd
-
-Playwright screenshots, Trivy/Syft SBOM- en imagescans, Interactsh self-hosted integratie, SSLyze, feroxbuster, historievergelijking voor andere scanners dan Nuclei, scheduler en volledige processtatusvastlegging voor alle tools. Zie `ROADMAP.md`.
-
-## Kwaliteitsgrenzen
-
-Het oude script bevat nog enkele `|| true`-constructies en gebruikt nog niet overal een processtatus. De bot-check heeft nog beperkingen, onder meer source-IP-whitelisting en het onderscheid tussen HTTP blokkade en onverwachte statuscodes. Volledige containerbuild en echte scans zijn hier niet uitgevoerd.
-
-## Licentie en attributie
-
-Ronny WebScanner is een fork en uitbreiding van [KP WebScanner](https://github.com/kpirnie/webscanner) van Kevin Pirnie, uitgebracht onder de MIT-licentie. De originele copyrightvermelding en licentietekst staan in [`LICENSE`](LICENSE). Zie ook [`NOTICE.md`](NOTICE.md).
-
-De scannerprogramma's die in de container worden geïnstalleerd, zijn afzonderlijke projecten met hun eigen licenties.
-
-## Develop fixpack: conservative scan status and load control
-
-This is a **development fixpack**, not a tagged v1.1.0 release. It follows the
-2026-11-24 BW02 `webapp` assessment, where Nuclei exited zero despite processing
-only 13,057 of 17,546 scheduled requests and reporting 148 request errors.
-
-- `baseline` and `webapp` default to Nuclei `-rl 10 -c 3`; `extended` defaults
-  to `-rl 20 -c 5`. Override using `--nuclei-rate N` and
-  `--nuclei-concurrency N` for explicitly authorized assessments.
-- Nuclei OAST/Interactsh is disabled by default using `-ni`.
-  Enable external callbacks *only if authorized* with `--allow-oast`.
-- Nuclei console statistics are assessed independently of process exit code.
-  Request errors, incomplete coverage, or unreachable targets yield `PARTIAL`.
-  When statistics are absent, completeness is not presumed.
-- Nikto error-limit termination is `PARTIAL`; Arjun targeting excludes common
-  static assets and stays in the requested hostname. Arjun per-target errors
-  are treated as `PARTIAL`.
-- Dalfox runs only on discovered same-host URLs containing query parameters;
-  otherwise status is `NOT_APPLICABLE`. This does not assert that XSS is absent.
-- WPScan reports `NOT_APPLICABLE` when WordPress is not detected.
-- HTML and DokuWiki reports show observed Nuclei request coverage and scan
-  limitations. Nuclei comparisons refuse to close findings if either scan
-  lacks verified successful completion.
-
-Example (authorized target):
-
-```sh
-docker buildx build --load -t webscanner:v1.1.0-dev-fixes .
-docker run --rm webscanner:v1.1.0-dev-fixes --check-deps
 
 docker run --rm --network host \
   --cap-add NET_ADMIN --cap-add NET_RAW \
-  -v "$HOME/webscanner/results:/output" \
-  webscanner:v1.1.0-dev-fixes \
+  -v "$PWD/results:/output" \
+  ronny-webscanner:1.1.0-dev \
+  https://example.org --profile baseline -o example
+```
+
+Voor een webapp-assessment:
+
+```bash
+docker run --rm --network host \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  -v "$PWD/results:/output" \
+  ronny-webscanner:1.1.0-dev \
   https://example.org --profile webapp \
   --skip-sqlmap --skip-zap --skip-botblocker \
   -o webapp-review
 ```
 
-`scanner-status.tsv` contains explicit `PARTIAL` and `NOT_APPLICABLE`
-classification overrides and `scanner-exitcodes.tsv` records selected tool
-exit codes. These support audit trails but do not replace human validation.
+Vervang `example.org` door het geautoriseerde doel. De voorbeelden gebruiken `--network host` en netwerkcapabilities om de netwerktools binnen Docker te kunnen gebruiken. Controleer of deze rechten in jouw omgeving nodig en toegestaan zijn.
 
-Run local tests:
+## Scanprofielen en opties
 
-```sh
-bash -n scan.sh
-python3 -m unittest discover -s tests -v
+| Profiel | Gebruik | Standaard Nuclei-instellingen |
+| --- | --- | --- |
+| `baseline` | Beperkte technische uitgangsmeting, zonder crawlen | 10 requests/s, concurrency 3 |
+| `webapp` | Webapplicatieonderzoek met endpoint discovery | 10 requests/s, concurrency 3 |
+| `extended` | Uitgebreidere actieve controles | 20 requests/s, concurrency 5 |
+
+Zonder `--profile` gebruikt de scanner om compatibiliteitsredenen `extended`. Kies daarom bij voorkeur expliciet een profiel.
+
+Veelgebruikte opties:
+
+| Optie | Betekenis |
+| --- | --- |
+| `-o NAAM` | Bewaar resultaten onder `/output/NAAM/` |
+| `--profile baseline\|webapp\|extended` | Kies het scanprofiel |
+| `--severity LEVELS` | Filter de Nuclei-severities |
+| `--nuclei-rate N` | Stel de Nuclei-requestlimiet in |
+| `--nuclei-concurrency N` | Stel de Nuclei-concurrency in |
+| `--previous PAD` | Vergelijk met een eerdere scanmap |
+| `--allow-oast` | Sta externe Nuclei OAST/Interactsh-callbacks expliciet toe |
+| `--check-deps` | Controleer geïnstalleerde tools |
+| `--skip-*` | Schakel specifieke controles uit; zie `--help` |
+
+Nuclei gebruikt standaard `-ni`, zodat externe Interactsh-callbacks uitstaan. `--allow-oast` schakelt die beperking alleen uit wanneer dat uitdrukkelijk gewenst en toegestaan is.
+
+De volledige CLI-help is beschikbaar met:
+
+```bash
+docker run --rm ronny-webscanner:1.1.0-dev --help
 ```
 
-## CrowdSec AppSec evidence (v1.1 hardening)
+## Scopebewaking
 
-De WebScanner markeert een HTTP 403 **niet** automatisch als CrowdSec-blokkering.
-Plaats optioneel een `waf-evidence.json` in de scanresultaatmap en genereer het rapport opnieuw.
-Dit is door een beheerder gecorreleerd bewijs, geen automatische detectie.
+De hardening-branch bevat twee maatregelen voor endpoint discovery:
+
+1. Katana draait met `-fs fqdn` om de crawl tot de opgegeven hostname te beperken.
+2. `scripts/scope_filter.py` filtert de gevonden URL's op exact HTTP(S)-origin (protocol, hostname en poort), dedupliceert ze en maakt een afzonderlijk bestand met afgewezen URL's.
+
+De relevante bestanden zijn `endpoints-raw.txt`, `endpoints.txt` en `endpoints-out-of-scope.txt`. Vervolgscanners zoals Arjun en Dalfox gebruiken de gefilterde lijst; SQLMap kan die lijst eveneens gebruiken.
+
+**Dit is nog geen volledige scopegarantie voor de gehele scanengine.** Redirects en afzonderlijke actieve tools moeten nog verder worden gecontroleerd. Gebruik de scanner niet voor een domein zonder toestemming voor de bijbehorende actieve tests.
+
+## Resultaten en auditbewijs
+
+De scanner maakt per run een map met de ruwe tooluitvoer en aanvullende rapportages.
+
+| Bestand | Inhoud |
+| --- | --- |
+| `scan.log` | Log van de scan |
+| `scanner-exitcodes.tsv` | Vastgelegde exitcodes van geselecteerde tools |
+| `scanner-status.tsv` | Expliciete statuscorrecties, zoals `PARTIAL` en `NOT_APPLICABLE` |
+| `scan-manifest.json` | Doel, profiel, scannerstatussen, dekking en beperkingen |
+| `findings.json` | Genormaliseerde Nuclei-bevindingen |
+| `report.html` | Zelfstandig offline dashboard |
+| `report-legacy.html` | Oorspronkelijk uitgebreid UIkit-rapport |
+| `report.dokuwiki.txt` | Technisch scanoverzicht voor DokuWiki |
+| `comparison.json` | Vergelijking met een eerdere scan, indien aangevraagd |
+
+De rapportgenerator verwerkt op dit moment alleen Nuclei-bevindingen tot genormaliseerde findings. Andere tooluitvoer blijft als technisch bewijs beschikbaar.
+
+### Scannerstatussen
+
+| Status | Betekenis |
+| --- | --- |
+| `COMPLETED` | De tool heeft volgens de beschikbare uitvoeringsgegevens succesvol afgerond |
+| `PARTIAL` | De scan is niet aantoonbaar volledig uitgevoerd |
+| `FAILED` | De tool heeft een bekende foutstatus |
+| `OUTPUT_PRESENT` | Er is uitvoer, maar succesvolle afronding is niet bevestigd |
+| `UNVERIFIED` | Er is onvoldoende bewijs voor een betrouwbare status |
+| `NOT_APPLICABLE` | De controle is voor het doel niet van toepassing |
+| `SKIPPED` | De controle is bewust overgeslagen |
+
+Bij Nuclei worden exitcode en gerapporteerde requestdekking apart beoordeeld. Een exitcode 0 met requestfouten leidt niet automatisch tot `COMPLETED`. Ook Nikto die op zijn HTTP-foutlimiet stopt en Arjun met bekende doelfouten worden als gedeeltelijk beoordeeld.
+
+Een status zegt niets op zichzelf over de aanwezigheid of afwezigheid van kwetsbaarheden.
+
+## CrowdSec en WAF-beoordeling
+
+**Scanneruitvoering, testdekking en effectiviteit van beveiligingsmaatregelen zijn verschillende beoordelingen.** Een WAF die een aanval bewust met HTTP 403 tegenhoudt, kan correct functioneren terwijl een kwetsbaarheidstest de achterliggende applicatie niet volledig bereikt.
+
+Een losse HTTP 403 bewijst niet dat CrowdSec de blokkering heeft veroorzaakt.
+
+De rapportgenerator kan optioneel door een beheerder gecorreleerd bewijs verwerken. Plaats in de betreffende scanmap een `waf-evidence.json`:
 
 ```json
 {
@@ -145,13 +148,50 @@ Dit is door een beheerder gecorreleerd bewijs, geen automatische detectie.
 }
 ```
 
-Zonder deze gegevens blijft de CrowdSec AppSec-status `UNVERIFIED`.
-Met de vier bewijsvelden, dezelfde hostname en status 403 wordt
-`CONTROL_EFFECTIVE` gerapporteerd. Dit beschrijft alleen de opgegeven
-en door de beheerder gecorreleerde gebeurtenissen, niet de effectiviteit
-voor andere aanvalspatronen. De rapportgenerator verifieert de externe
-logbronnen niet zelfstandig.
+Bij een passende hostname, HTTP 403 en ingevulde verwijzingen naar zowel CrowdSec als de reverse-proxylog rapporteert de generator `CONTROL_EFFECTIVE` voor deze aangeleverde gebeurtenissen. Zonder bruikbaar bewijs blijft de status `UNVERIFIED`.
 
-De processtatus van Nuclei (`PARTIAL`, `COMPLETED`, enzovoort)
-en de requestdekking veranderen hierdoor niet.
+Deze classificatie is **geen automatische koppeling met CrowdSec**. Het programma controleert de externe logs niet zelfstandig en verifieert niet dat de bewijsverwijzingen inhoudelijk kloppen. Nuclei-requestfouten blijven afzonderlijk zichtbaar en worden niet automatisch aan CrowdSec toegeschreven.
 
+De functie is momenteel onderdeel van `reporting/generate.py`, niet van de algemene `scan.sh`-CLI. Voor het opnieuw genereren van een bestaand rapport moet je de oorspronkelijke doel- en profielgegevens aan de rapportgenerator doorgeven; houd er rekening mee dat dit de rapportbestanden in de bestaande scanmap opnieuw schrijft.
+
+## Scans vergelijken
+
+Gebruik `--previous` en zorg dat de eerdere scanmap via dezelfde Docker-volume beschikbaar is:
+
+```bash
+docker run --rm --network host \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  -v "$PWD/results:/output" \
+  ronny-webscanner:1.1.0-dev \
+  https://example.org --profile baseline -o example \
+  --previous /output/example/example.org_20261123_190000
+```
+
+Vergelijkingen vereisen hetzelfde doel, hetzelfde profiel en voldoende betrouwbare Nuclei-dekking. De vergelijking onderscheidt nieuwe, ongewijzigde en niet meer gedetecteerde findings. **Niet meer gedetecteerd is niet automatisch opgelost.**
+
+## Ontwikkeling en kwaliteit
+
+De broncode staat in [rroethof/webscanner](https://github.com/rroethof/webscanner). De branches hebben elk een eigen rol:
+
+| Branch | Doel |
+| --- | --- |
+| `master` | Stabiele v1.0.0-inhoud |
+| `develop` | Ontwikkelbasis voor v1.1.0 |
+| `feature/v1.1-hardening` | Scope- en rapportageverbeteringen, nog niet gemerged |
+
+Voer de bestaande tests lokaal uit:
+
+```bash
+bash -n scan.sh
+python3 -m unittest discover -s tests -v
+```
+
+De tests vervangen geen volledige Dockerbuild of gecontroleerde praktijkbeproeving. Deze hardening-wijzigingen zijn nog niet als stabiele v1.1.0-release gevalideerd.
+
+De belangrijkste resterende werkzaamheden zijn volledige exitcode- en timingregistratie, verdere redirect- en scopebeveiliging, betrouwbare verwerking van Nikto/Arjun/Dalfox, en uitgebreidere rapportage. Zie [ROADMAP.md](ROADMAP.md) voor de ontwikkelplanning.
+
+## Licentie en herkomst
+
+Ronny WebScanner bouwt voort op [KP WebScanner](https://github.com/kpirnie/webscanner) van Kevin Pirnie, onder de MIT-licentie. De oorspronkelijke attributie blijft behouden in [LICENSE](LICENSE) en [NOTICE.md](NOTICE.md).
+
+Meegeleverde externe scanners zijn afzonderlijke projecten met hun eigen licentievoorwaarden.
