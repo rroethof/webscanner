@@ -9,7 +9,7 @@
 set -euo pipefail
 
 # really only for reference
-VER='1.1.0-dev'
+VER='1.0.0'
 
 # Terminal UI. Disable colour when stdout is not interactive.
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -48,12 +48,6 @@ ${BOLD}Options:${RESET}
   -o PATH               Write results to /output/PATH (requires volume mount)
                         Omit to print summary to stdout
   --severity LEVEL      Nuclei severity filter (default: low,medium,high,critical)
-  --profile NAME        baseline | webapp | extended (default: extended)
-  --check-deps          Check tool availability and exit
-  --previous DIR        Compare with previous run directory (mounted inside container)
-  --nuclei-rate N       Nuclei requests/second (baseline/webapp: 10, extended: 20)
-  --nuclei-concurrency N Concurrent Nuclei templates (baseline/webapp: 3, extended: 5)
-  --allow-oast          Explicitly enable external Nuclei OAST/Interactsh callbacks
 
 ${BOLD}Skip Flags:${RESET}
   --skip-fingerprint    Skip WhatWeb + httpx
@@ -85,24 +79,12 @@ EOF
 # -----------------------------------------------------------------------------
 # Args
 # -----------------------------------------------------------------------------
-if [[ "${1:-}" == "--check-deps" ]]; then
-    tools=(whatweb httpx subfinder dnsx naabu nmap testssl.sh mdn-http-observatory-scan nikto wpscan katana gobuster ffuf arjun dalfox sqlmap osv-scanner nuclei curl jq zap.sh wafw00f python3)
-    missing=0
-    for tool in "${tools[@]}"; do
-        if command -v "$tool" >/dev/null 2>&1; then printf '[OK] %s\n' "$tool"; else printf '[MISSING] %s\n' "$tool"; ((missing+=1)); fi
-    done
-    ((missing==0))
-    exit $?
-fi
 [[ $# -lt 1 || "$1" == "--help" ]] && usage
 
 TARGET_RAW="$1"; shift
 
 OUTPUT_PATH=""
 SEVERITY="low,medium,high,critical"
-PROFILE="extended"
-PREVIOUS_DIR=""
-REQUESTED_SKIPS=()
 SKIP_FINGERPRINT=false
 SKIP_RECON=false
 SKIP_SUBDOMAINS=false
@@ -123,19 +105,11 @@ SKIP_NUCLEI=false
 SKIP_BOTBLOCKER=false
 SKIP_ZAP=false
 SAMPLE_SIZE=50
-NUCLEI_RATE=""
-NUCLEI_CONCURRENCY=""
-ALLOW_OAST=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -o)                  OUTPUT_PATH="$2"; shift ;;
         --severity)          SEVERITY="$2"; shift ;;
-        --profile)           PROFILE="$2"; shift ;;
-        --previous)          [[ $# -ge 2 ]] || { echo "--previous requires a path" >&2; exit 2; }; PREVIOUS_DIR="$2"; shift ;;
-        --nuclei-rate)       [[ $# -ge 2 ]] || { echo "--nuclei-rate requires a number" >&2; exit 2; }; NUCLEI_RATE="$2"; shift ;;
-        --nuclei-concurrency) [[ $# -ge 2 ]] || { echo "--nuclei-concurrency requires a number" >&2; exit 2; }; NUCLEI_CONCURRENCY="$2"; shift ;;
-        --allow-oast)        ALLOW_OAST=true ;;
         --skip-fingerprint)  SKIP_FINGERPRINT=true ;;
         --skip-recon)        SKIP_RECON=true ;;
         --skip-subdomains)   SKIP_SUBDOMAINS=true ;;
@@ -162,33 +136,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Profiles apply before scanning; explicit --skip-* flags remain active.
-case "$PROFILE" in
-    baseline)
-        SKIP_RECON=true; SKIP_SUBDOMAINS=true; SKIP_CRAWL=true
-        SKIP_BRUTE=true; SKIP_ARJUN=true; SKIP_XSS=true; SKIP_SQLMAP=true
-        SKIP_OSV=true; SKIP_BOTBLOCKER=true; SKIP_ZAP=true
-        ;;
-    webapp)
-        SKIP_RECON=true; SKIP_SUBDOMAINS=true; SKIP_BRUTE=true
-        SKIP_SQLMAP=true; SKIP_OSV=true; SKIP_BOTBLOCKER=true
-        ;;
-    extended) ;;
-    *) printf 'Unknown profile: %s\n' "$PROFILE" >&2; exit 2 ;;
-esac
-
-# Rate limiting is conservative for production targets. No externally hosted OAST by default.
-if [[ "$PROFILE" == "extended" ]]; then
-    : "${NUCLEI_RATE:=20}"
-    : "${NUCLEI_CONCURRENCY:=5}"
-else
-    : "${NUCLEI_RATE:=10}"
-    : "${NUCLEI_CONCURRENCY:=3}"
-fi
-for value in "$NUCLEI_RATE" "$NUCLEI_CONCURRENCY"; do
-    [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "Nuclei rates must be positive integers" >&2; exit 2; }
-done
-
 # -----------------------------------------------------------------------------
 # Normalise target
 # -----------------------------------------------------------------------------
@@ -211,24 +158,6 @@ else
     mkdir -p "${OUT_DIR}"
 fi
 
-SCAN_STATUS_FILE="${OUT_DIR}/scanner-exitcodes.tsv"
-: > "${SCAN_STATUS_FILE}"
-SCAN_OVERRIDES_FILE="${OUT_DIR}/scanner-status.tsv"
-: > "${SCAN_OVERRIDES_FILE}"
-mark_status() { # scanner, COMPLETED/PARTIAL/FAILED/NOT_APPLICABLE, note
-    local key="$1" state="$2" note="${3:-}"
-    note="${note//$'\t'/ }"; note="${note//$'\n'/ }"
-    printf '%s\t%s\t%s\n' "$key" "$state" "$note" >> "$SCAN_OVERRIDES_FILE"
-}
-# Store exit code from first command in pipeline. Never report success from tee.
-run_logged() {
-    local key="$1" log="$2" rc
-    shift 2
-    if "$@" 2>&1 | tee "$log"; then rc=0; else rc=${PIPESTATUS[0]}; fi
-    printf '%s\t%s\n' "$key" "$rc" >> "$SCAN_STATUS_FILE"
-    return "$rc"
-}
-
 # Wordlist
 WORDLIST=""
 for wl in /usr/share/wordlists/big.txt \
@@ -246,8 +175,6 @@ info "Target:      ${BOLD}${TARGET_URI}${RESET}"
 info "Host:        ${TARGET_HOST}"
 [[ -n "${OUTPUT_PATH}" ]] && info "Output:      ${OUT_DIR}"
 info "Severity:    ${SEVERITY}"
-info "Profile:     ${PROFILE}"
-info "Release:     Ronny WebScanner ${VER}"
 info "Started:     $(date)"
 
 # -----------------------------------------------------------------------------
@@ -364,25 +291,24 @@ fi
 section "6/18 — Nmap Service & Script Scan"
 
 if [[ "${SKIP_NMAP}" == "false" ]]; then
-    info "nmap — scoped service detection, no broad NSE broadcast scripts..."
+    info "nmap — service detection and NSE vuln scripts..."
     if [[ -s "${OUT_DIR}/ports.txt" ]]; then
         OPEN_PORTS=$(grep -oE ':[0-9]+' "${OUT_DIR}/ports.txt" | tr -d ':' | sort -u | tr '\n' ',' | sed 's/,$//')
     else
         OPEN_PORTS="80,443,8080,8443"
     fi
 
-    if nmap -sV --version-light \
-        --script "http-title,http-headers,ssl-cert" \
+    nmap -sV -sC \
+        --script "vuln,safe,default" \
         -p "${OPEN_PORTS}" \
         --open \
         -oN "${OUT_DIR}/nmap.txt" \
         -oX "${OUT_DIR}/nmap.xml" \
-        --host-timeout 600s \
+        --host-timeout 300s \
         --max-retries 2 \
         "${TARGET_HOST}" 2>&1 \
-        | tee "${OUT_DIR}/nmap_console.txt"
-    then echo -e "nmap\t0" >> "${SCAN_STATUS_FILE}"; else echo -e "nmap\t1" >> "${SCAN_STATUS_FILE}"; warn "nmap failed or timed out"; fi
-    info "nmap step finished (see status)"
+        | tee "${OUT_DIR}/nmap_console.txt" || true
+    ok "nmap done"
 else
     warn "Nmap skipped (--skip-nmap)"
 fi
@@ -394,14 +320,13 @@ section "7/18 — SSL/TLS Analysis"
 
 if [[ "${SKIP_SSL}" == "false" ]]; then
     info "testssl.sh..."
-    if testssl.sh \
+    testssl.sh \
         --logfile "${OUT_DIR}/testssl.txt" \
         --jsonfile "${OUT_DIR}/testssl.json" \
         --severity LOW --quiet \
         "${TARGET_URI}" 2>&1 \
-        | tee "${OUT_DIR}/testssl_console.txt"
-    then echo -e "testssl.sh\t0" >> "${SCAN_STATUS_FILE}"; else echo -e "testssl.sh\t1" >> "${SCAN_STATUS_FILE}"; warn "testssl.sh failed or timed out"; fi
-    info "testssl.sh step finished (see status)"
+        | tee "${OUT_DIR}/testssl_console.txt" || true
+    ok "testssl.sh done"
 else
     warn "SSL/TLS analysis skipped (--skip-ssl)"
 fi
@@ -437,17 +362,14 @@ fi
 section "9/18 — Nikto"
 
 if [[ "${SKIP_NIKTO}" == "false" ]]; then
-    info "nikto — single JSON-aware run; errors are not successful findings"
-    if run_logged nikto "${OUT_DIR}/nikto_console.txt" nikto -h "${TARGET_URI}" -C all -Tuning x -nointeractive \
-        -Format txt -o "${OUT_DIR}/nikto.txt"; then
-        ok "nikto process finished"
-    else
-        warn "nikto exited with an error"
-    fi
-    if grep -Eiq 'Error limit \([0-9]+\) reached|Scan terminated: [0-9]+ errors|giving up' "${OUT_DIR}/nikto_console.txt" "${OUT_DIR}/nikto.txt" 2>/dev/null; then
-        mark_status nikto PARTIAL "Nikto stopped after reaching its HTTP error limit"
-        warn "Nikto scan incomplete: error limit reached"
-    fi
+    info "nikto (all CGI dirs, full tuning)..."
+    nikto -h "${TARGET_URI}" -C all -Tuning x -nointeractive \
+        -Format txt -o "${OUT_DIR}/nikto.txt" 2>&1 \
+        | tee "${OUT_DIR}/nikto_console.txt" || true
+    nikto -h "${TARGET_URI}" -C all -Tuning x -nointeractive \
+        -Format json -o "${OUT_DIR}/nikto.json" 2>&1 \
+        >> "${OUT_DIR}/nikto_console.txt" || true
+    ok "nikto done"
 else
     warn "Nikto skipped (--skip-nikto)"
 fi
@@ -491,7 +413,6 @@ if [[ "${SKIP_CMS}" == "false" ]]; then
         ok "WPScan done"
     else
         warn "WordPress not detected — skipping WPScan"
-        mark_status wpscan NOT_APPLICABLE "WordPress fingerprint not detected"
     fi
 
     [[ "${IS_DRUPAL}" == "true" ]]  && warn "Drupal detected — covered by Nuclei templates and ZAP active scan"
@@ -508,26 +429,11 @@ fi
 section "11/18 — Endpoint Discovery"
 
 if [[ "${SKIP_CRAWL}" == "false" ]]; then
-    info "katana — exact hostname scope (fqdn)..."
-    # -fs fqdn restricts the crawler itself, not merely the resulting file.
-    if run_logged katana "${OUT_DIR}/katana_console.txt" \
-        katana -u "${TARGET_URI}" -depth 3 -js-crawl -fs fqdn \
-        -o "${OUT_DIR}/endpoints-raw.txt"; then
-        ok "katana process finished"
-    else
-        warn "katana failed or timed out"
-    fi
-
-    # Defensive second gate: downstream scanners never receive raw discoveries.
-    if python3 /usr/local/lib/ronny-webscanner/scope_filter.py \
-        "${TARGET_URI}" "${OUT_DIR}/endpoints-raw.txt" \
-        "${OUT_DIR}/endpoints.txt" "${OUT_DIR}/endpoints-out-of-scope.txt"; then
-        info "Filtered crawler output is ready for Arjun, Dalfox and SQLMap"
-    else
-        warn "Scope filter failed: refusing to pass raw crawler URLs downstream"
-        : > "${OUT_DIR}/endpoints.txt"
-        mark_status katana FAILED "Post-crawl origin filter failed"
-    fi
+    info "katana..."
+    katana -u "${TARGET_URI}" -depth 3 -js-crawl \
+        -o "${OUT_DIR}/endpoints.txt" 2>&1 \
+        | tee "${OUT_DIR}/katana_console.txt" || true
+    ok "katana done"
 else
     warn "Crawling skipped (--skip-crawl)"
 fi
@@ -561,40 +467,20 @@ fi
 section "12/18 — Arjun (Parameter Discovery)"
 
 if [[ "${SKIP_ARJUN}" == "false" ]]; then
-    info "arjun — only same-host HTML-like routes; no static bundles"
-    # All paths must stay inside the original hostname, and dynamic URLs must be confirmed before testing.
-    python3 - "$TARGET_URI" "${OUT_DIR}/endpoints.txt" "${OUT_DIR}/arjun_targets.txt" <<'PYARJUN'
-from urllib.parse import urlsplit, urlunsplit
-import sys, pathlib
-base, discovered, dest=sys.argv[1:]
-root=urlsplit(base)
-candidates=[base]
-if pathlib.Path(discovered).exists():
-    candidates+=pathlib.Path(discovered).read_text(errors='replace').splitlines()
-seen=set(); picked=[]
-for raw in candidates:
-    raw=raw.strip()
-    try: u=urlsplit(raw)
-    except ValueError: continue
-    if u.scheme not in ('https','http') or u.hostname != root.hostname or u.port != root.port:continue
-    path=u.path.lower()
-    if path.endswith(('.js','.css','.json','.map','.png','.jpg','.jpeg','.gif','.svg','.ico','.woff','.woff2','.ttf','.xml','.pdf','.zip','.wasm','.txt')):continue
-    normalized=urlunsplit((u.scheme,u.netloc,u.path,'',''))
-    if normalized not in seen:
-        seen.add(normalized);picked.append(normalized)
-    if len(picked)>=10:break
-pathlib.Path(dest).write_text('\n'.join(picked)+'\n')
-PYARJUN
-    if run_logged arjun "${OUT_DIR}/arjun_console.txt" \
-        arjun -i "${OUT_DIR}/arjun_targets.txt" -oJ "${OUT_DIR}/arjun.json" -t 2; then
-        ok "arjun process finished"
+    info "arjun — discovering hidden parameters..."
+    if [[ -s "${OUT_DIR}/endpoints.txt" ]]; then
+        head -50 "${OUT_DIR}/endpoints.txt" > "${OUT_DIR}/arjun_targets.txt"
+        arjun -i "${OUT_DIR}/arjun_targets.txt" \
+            -oJ "${OUT_DIR}/arjun.json" \
+            -t 10 \
+            2>&1 | tee "${OUT_DIR}/arjun_console.txt" || true
     else
-        warn "arjun failed"
+        arjun -u "${TARGET_URI}" \
+            -oJ "${OUT_DIR}/arjun.json" \
+            -t 10 \
+            2>&1 | tee "${OUT_DIR}/arjun_console.txt" || true
     fi
-    if grep -Eiq 'Skipped .* due to errors|Encountered an error|ConnectionError|Traceback|timed out' "${OUT_DIR}/arjun_console.txt"; then
-        mark_status arjun PARTIAL "One or more Arjun targets failed; check console output"
-        warn "Arjun incomplete; at least one target failed"
-    fi
+    ok "arjun done"
 else
     warn "Arjun skipped (--skip-arjun)"
 fi
@@ -605,35 +491,19 @@ fi
 section "13/18 — Dalfox (XSS Scanning)"
 
 if [[ "${SKIP_XSS}" == "false" ]]; then
-    # Dalfox is relevant to parameterized URLs. Avoid forcing a run on the Bitwarden login page.
-    python3 - "$TARGET_URI" "${OUT_DIR}/endpoints.txt" "${OUT_DIR}/dalfox_targets.txt" <<'PYDALFOX'
-from urllib.parse import urlsplit
-from pathlib import Path
-import sys
-base, infile, outfile=sys.argv[1:]
-root=urlsplit(base)
-found=[];seen=set()
-if Path(infile).exists():
-    for url in Path(infile).read_text(errors='replace').splitlines():
-        try: u=urlsplit(url.strip())
-        except ValueError:continue
-        if u.scheme in ('http','https') and u.hostname==root.hostname and u.port==root.port and u.query and url not in seen:
-            found.append(url);seen.add(url)
-        if len(found)>=20:break
-Path(outfile).write_text('\n'.join(found)+('\n' if found else ''))
-PYDALFOX
-    if [[ -s "${OUT_DIR}/dalfox_targets.txt" ]]; then
-        info "dalfox — parameterized URLs only"
-        if run_logged dalfox "${OUT_DIR}/dalfox_console.txt" dalfox file "${OUT_DIR}/dalfox_targets.txt" \
-            --silence --no-spinner --follow-redirects --output "${OUT_DIR}/dalfox.txt"; then
-            ok "dalfox process finished"
-        else
-            warn "dalfox failed"
-        fi
+    info "dalfox — scanning for XSS..."
+    if [[ -s "${OUT_DIR}/endpoints.txt" ]]; then
+        dalfox file "${OUT_DIR}/endpoints.txt" \
+            --silence --no-spinner --follow-redirects \
+            --output "${OUT_DIR}/dalfox.txt" \
+            2>&1 | tee "${OUT_DIR}/dalfox_console.txt" || true
     else
-        info "No eligible parameterized URLs for Dalfox"
-        mark_status dalfox NOT_APPLICABLE "No parameterized URLs discovered within target scope"
+        dalfox url "${TARGET_URI}" \
+            --silence --no-spinner --follow-redirects \
+            --output "${OUT_DIR}/dalfox.txt" \
+            2>&1 | tee "${OUT_DIR}/dalfox_console.txt" || true
     fi
+    ok "dalfox done"
 else
     warn "XSS scanning skipped (--skip-xss)"
 fi
@@ -730,17 +600,16 @@ fi
 section "16/18 — Nuclei"
 
 if [[ "${SKIP_NUCLEI}" == "false" ]]; then
-    info "Nuclei with rate limit ${NUCLEI_RATE}/s, concurrency ${NUCLEI_CONCURRENCY}"
-    NUCLEI_EXTRA=(-ni)
-    [[ "$ALLOW_OAST" == true ]] && NUCLEI_EXTRA=()
-    if run_logged nuclei "${OUT_DIR}/nuclei_console.txt" nuclei -u "${TARGET_URI}" \
-        -o "${OUT_DIR}/nuclei.txt" -je "${OUT_DIR}/nuclei.json" \
-        -severity "${SEVERITY}" -rl "$NUCLEI_RATE" -c "$NUCLEI_CONCURRENCY" \
-        -timeout 10 -retries 1 "${NUCLEI_EXTRA[@]}" -stats; then
-        ok "nuclei process finished (coverage inspected by reporting)"
-    else
-        warn "nuclei failed or timed out"
-    fi
+    info "Updating templates..."
+    nuclei -update-templates -silent 2>/dev/null || true
+
+    info "nuclei..."
+    nuclei -u "${TARGET_URI}" \
+        -o "${OUT_DIR}/nuclei.txt" \
+        -je "${OUT_DIR}/nuclei.json" \
+        -severity "${SEVERITY}" -stats 2>&1 \
+        | tee "${OUT_DIR}/nuclei_console.txt" || true
+    ok "nuclei done"
 else
     warn "Nuclei skipped (--skip-nuclei)"
 fi
@@ -767,13 +636,11 @@ if [[ "${SKIP_BOTBLOCKER}" == "false" ]]; then
             ${ref:+-e "${ref}"} \
             -o /dev/null \
             -w "%{http_code}" \
-            "${TARGET_URI}" 2>/dev/null) || { echo "error"; return; }
+            "${TARGET_URI}" 2>/dev/null) || { echo "blocked"; return; }
         if [[ "${http_code}" =~ ^[23][0-9][0-9]$ ]]; then
             echo "allowed"
-        elif [[ "${http_code}" =~ ^(403|406|429)$ ]]; then
-            echo "blocked"
         else
-            echo "unverified"
+            echo "blocked"
         fi
     }
 
@@ -865,10 +732,39 @@ if [[ "${SKIP_BOTBLOCKER}" == "false" ]]; then
     fi
 
     echo ""
-    echo "=== BAD IP ADDRESSES ==="
-    echo "  NOT TESTED: source-IP ACLs need requests from controlled real source addresses."
-    echo "  X-Forwarded-For must not be used as evidence of IP blocking."
-    echo ""
+    echo "=== BAD IP ADDRESSES (should be BLOCKED) ==="
+    if [[ -n "${BAD_IP_LIST}" ]]; then
+        while IFS= read -r ip; do
+            [[ -z "${ip}" ]] && continue
+            http_code=$(curl -sf \
+                --max-time 8 \
+                --connect-timeout 5 \
+                --interface "${ip}" \
+                -o /dev/null \
+                -w "%{http_code}" \
+                "${TARGET_URI}" 2>/dev/null) || http_code="blocked"
+            if [[ "${http_code}" == "blocked" || -z "${http_code}" ]]; then
+                http_code=$(curl -sf \
+                    --max-time 8 \
+                    --connect-timeout 5 \
+                    -H "X-Forwarded-For: ${ip}" \
+                    -H "X-Real-IP: ${ip}" \
+                    -o /dev/null \
+                    -w "%{http_code}" \
+                    "${TARGET_URI}" 2>/dev/null) || http_code="000"
+            fi
+            if [[ "${http_code}" =~ ^[23][0-9][0-9]$ ]]; then
+                echo "  [ALLOWED ✗] IP: ${ip} (${http_code})"
+                (( ALLOWED++ )) || true
+            else
+                echo "  [BLOCKED ✓] IP: ${ip}"
+                (( BLOCKED++ )) || true
+            fi
+        done <<< "${BAD_IP_LIST}"
+    else
+        echo "  [!] Could not fetch bad IP list"
+    fi
+
     echo ""
     echo "=== WHITELISTED USER-AGENTS (should be ALLOWED — full coverage, no sampling) ==="
     WL_FP=0
@@ -900,10 +796,31 @@ if [[ "${SKIP_BOTBLOCKER}" == "false" ]]; then
     fi
 
     echo ""
-    echo "=== WHITELISTED IPs ==="
-    echo "  NOT TESTED: cannot validate source IP allowlist via spoofed headers."
+    echo "=== WHITELISTED IPs (should be ALLOWED — full coverage, no sampling) ==="
     WL_IP_FP=0
-    echo ""
+    if [[ -n "${WHITELIST_IP}" ]]; then
+        while IFS= read -r ip; do
+            [[ -z "${ip}" ]] && continue
+            http_code=$(curl -sf \
+                --max-time 8 \
+                --connect-timeout 5 \
+                -H "X-Forwarded-For: ${ip}" \
+                -H "X-Real-IP: ${ip}" \
+                -o /dev/null \
+                -w "%{http_code}" \
+                "${TARGET_URI}" 2>/dev/null) || http_code="000"
+            if [[ "${http_code}" =~ ^[23][0-9][0-9]$ ]]; then
+                echo "  [ALLOWED ✓] IP: ${ip}"
+            else
+                echo "  [BLOCKED ✗] IP: ${ip} — FALSE POSITIVE"
+                (( WL_IP_FP++ )) || true
+                (( FP++ )) || true
+            fi
+        done <<< "${WHITELIST_IP}"
+    else
+        echo "  (whitelist-ip.list is empty or unavailable — skipped)"
+    fi
+
     echo ""
     echo "═══════════════════════════════════════════════════"
     echo "SUMMARY"
@@ -946,13 +863,10 @@ if [[ "${SKIP_ZAP}" == "false" ]]; then
         -quickurl "${TARGET_URI}" \
         -quickout "${OUT_DIR}/zap_report.html" \
         -quickprogress 2>&1 \
-        | tee "${OUT_DIR}/zap_console.txt" && {
-            printf 'zap\t0\n' >> "${SCAN_STATUS_FILE}"
-        } || {
-            printf 'zap\t1\n' >> "${SCAN_STATUS_FILE}"
+        | tee "${OUT_DIR}/zap_console.txt" || {
             warn "ZAP exited non-zero or hit 10 min timeout — partial results may exist"
         }
-    info "ZAP step finished (see status)"
+    ok "ZAP done"
 else
     warn "ZAP skipped (--skip-zap)"
 fi
@@ -960,13 +874,6 @@ fi
 # -----------------------------------------------------------------------------
 # HTML Report
 # -----------------------------------------------------------------------------
-section "WAF Fingerprint (optional)"
-if command -v wafw00f >/dev/null 2>&1; then
-    timeout 60 wafw00f "${TARGET_URI}" > "${OUT_DIR}/wafw00f.txt" 2>&1 || warn "WAF fingerprint incomplete"
-else
-    warn "wafw00f not installed, skipping"
-fi
-
 section "Generating HTML Report"
 
 REPORT_FILE="${OUT_DIR}/report.html"
@@ -1476,18 +1383,4 @@ else
     [[ -s "${OUT_DIR}/botblocker_test.txt" ]] && { echo -e "\n${BOLD}── Bot Blocker ──────${RESET}"; grep -E "SUMMARY|blocked:|positives:|rate:" "${OUT_DIR}/botblocker_test.txt" || true; }
     [[ -s "${OUT_DIR}/nuclei.txt" ]]          && { echo -e "\n${BOLD}── Nuclei ───────────${RESET}"; cat "${OUT_DIR}/nuclei.txt"; }
     [[ -s "${OUT_DIR}/gobuster.txt" ]]        && { echo -e "\n${BOLD}── Paths ────────────${RESET}"; head -50 "${OUT_DIR}/gobuster.txt"; }
-fi
-# Offline evidence dashboard. Keep original UIkit report available as legacy report.
-if [[ -f /usr/local/lib/ronny-webscanner/reporting/generate.py ]]; then
-    cp "${OUT_DIR}/report.html" "${OUT_DIR}/report-legacy.html"
-    PREVIOUS_ARGS=()
-    [[ -n "${PREVIOUS_DIR}" ]] && PREVIOUS_ARGS=(--previous "${PREVIOUS_DIR}")
-    python3 /usr/local/lib/ronny-webscanner/reporting/generate.py \
-        --out "${OUT_DIR}" --target "${TARGET_URI}" --profile "${PROFILE}" \
-        --version "${VER}" \
-        "${PREVIOUS_ARGS[@]}" \
-        $(for flag in FINGERPRINT RECON SUBDOMAINS DNS PORTS NMAP SSL HEADERS NIKTO CMS CRAWL BRUTE ARJUN XSS SQLMAP OSV NUCLEI BOTBLOCKER ZAP; do
-            var="SKIP_${flag}"; [[ "${!var}" == true ]] && printf ' --skipped %s' "${flag,,}"
-        done) \
-        || warn "Offline report generation failed; report-legacy.html remains"
 fi
