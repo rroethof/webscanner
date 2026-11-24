@@ -123,3 +123,35 @@ Run local tests:
 bash -n scan.sh
 python3 -m unittest discover -s tests -v
 ```
+
+## CrowdSec AppSec evidence (v1.1 hardening)
+
+De WebScanner markeert een HTTP 403 **niet** automatisch als CrowdSec-blokkering.
+Plaats optioneel een `waf-evidence.json` in de scanresultaatmap en genereer het rapport opnieuw.
+Dit is door een beheerder gecorreleerd bewijs, geen automatische detectie.
+
+```json
+{
+  "events": [
+    {
+      "host": "example.org",
+      "http_status": 403,
+      "crowdsec_alert_id": "ALERT_ID",
+      "crowdsec_rule": "crowdsecurity/example-rule",
+      "crowdsec_alert_reference": "cscli alerts inspect ALERT_ID",
+      "proxy_log_reference": "access.log:2026-11-24T08:41:24"
+    }
+  ]
+}
+```
+
+Zonder deze gegevens blijft de CrowdSec AppSec-status `UNVERIFIED`.
+Met de vier bewijsvelden, dezelfde hostname en status 403 wordt
+`CONTROL_EFFECTIVE` gerapporteerd. Dit beschrijft alleen de opgegeven
+en door de beheerder gecorreleerde gebeurtenissen, niet de effectiviteit
+voor andere aanvalspatronen. De rapportgenerator verifieert de externe
+logbronnen niet zelfstandig.
+
+De processtatus van Nuclei (`PARTIAL`, `COMPLETED`, enzovoort)
+en de requestdekking veranderen hierdoor niet.
+
