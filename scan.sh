@@ -508,11 +508,26 @@ fi
 section "11/18 — Endpoint Discovery"
 
 if [[ "${SKIP_CRAWL}" == "false" ]]; then
-    info "katana..."
-    katana -u "${TARGET_URI}" -depth 3 -js-crawl \
-        -o "${OUT_DIR}/endpoints.txt" 2>&1 \
-        | tee "${OUT_DIR}/katana_console.txt" || true
-    ok "katana done"
+    info "katana — exact hostname scope (fqdn)..."
+    # -fs fqdn restricts the crawler itself, not merely the resulting file.
+    if run_logged katana "${OUT_DIR}/katana_console.txt" \
+        katana -u "${TARGET_URI}" -depth 3 -js-crawl -fs fqdn \
+        -o "${OUT_DIR}/endpoints-raw.txt"; then
+        ok "katana process finished"
+    else
+        warn "katana failed or timed out"
+    fi
+
+    # Defensive second gate: downstream scanners never receive raw discoveries.
+    if python3 /usr/local/lib/ronny-webscanner/scope_filter.py \
+        "${TARGET_URI}" "${OUT_DIR}/endpoints-raw.txt" \
+        "${OUT_DIR}/endpoints.txt" "${OUT_DIR}/endpoints-out-of-scope.txt"; then
+        info "Filtered crawler output is ready for Arjun, Dalfox and SQLMap"
+    else
+        warn "Scope filter failed: refusing to pass raw crawler URLs downstream"
+        : > "${OUT_DIR}/endpoints.txt"
+        mark_status katana FAILED "Post-crawl origin filter failed"
+    fi
 else
     warn "Crawling skipped (--skip-crawl)"
 fi
