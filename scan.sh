@@ -257,16 +257,22 @@ section "1/18 — Fingerprinting"
 
 if [[ "${SKIP_FINGERPRINT}" == "false" ]]; then
     info "whatweb..."
-    whatweb "${TARGET_URI}" --log-verbose="${OUT_DIR}/whatweb.txt" 2>&1 \
-        | tee "${OUT_DIR}/whatweb_console.txt" || true
-    ok "whatweb done"
+    if run_logged whatweb "${OUT_DIR}/whatweb_console.txt" \
+        whatweb "${TARGET_URI}" --log-verbose="${OUT_DIR}/whatweb.txt"; then
+        ok "whatweb process finished"
+    else
+        warn "whatweb failed; inspect console output"
+    fi
 
     info "httpx..."
-    echo "${TARGET_HOST}" | httpx \
+    if run_logged httpx "${OUT_DIR}/httpx_console.txt" \
+        httpx -u "${TARGET_URI}" \
         -title -tech-detect -status-code -content-length -web-server -ip \
-        -follow-redirects -o "${OUT_DIR}/httpx.txt" 2>&1 \
-        | tee "${OUT_DIR}/httpx_console.txt" || true
-    ok "httpx done"
+        -o "${OUT_DIR}/httpx.txt"; then
+        ok "httpx process finished"
+    else
+        warn "httpx failed; inspect console output"
+    fi
 else
     warn "Fingerprinting skipped (--skip-fingerprint)"
 fi
@@ -334,11 +340,14 @@ section "4/18 — DNS Enumeration"
 
 if [[ "${SKIP_DNS}" == "false" ]]; then
     info "dnsx..."
-    echo "${TARGET_HOST}" | dnsx \
+    if run_logged dnsx "${OUT_DIR}/dnsx_console.txt" \
+        dnsx -d "${TARGET_HOST}" \
         -a -aaaa -cname -mx -ns -txt -resp \
-        -o "${OUT_DIR}/dns.txt" 2>&1 \
-        | tee "${OUT_DIR}/dnsx_console.txt" || true
-    ok "dnsx done"
+        -o "${OUT_DIR}/dns.txt"; then
+        ok "dnsx process finished"
+    else
+        warn "dnsx failed; inspect console output"
+    fi
 else
     warn "DNS enumeration skipped (--skip-dns)"
 fi
@@ -350,10 +359,13 @@ section "5/18 — Port Scanning"
 
 if [[ "${SKIP_PORTS}" == "false" ]]; then
     info "naabu (top 1000)..."
-    naabu -host "${TARGET_HOST}" -top-ports 1000 \
-        -o "${OUT_DIR}/ports.txt" 2>&1 \
-        | tee "${OUT_DIR}/naabu_console.txt" || true
-    ok "naabu done"
+    if run_logged naabu "${OUT_DIR}/naabu_console.txt" \
+        naabu -host "${TARGET_HOST}" -top-ports 1000 \
+        -o "${OUT_DIR}/ports.txt"; then
+        ok "naabu process finished"
+    else
+        warn "naabu failed; inspect console output"
+    fi
 else
     warn "Port scanning skipped (--skip-ports)"
 fi
@@ -371,7 +383,7 @@ if [[ "${SKIP_NMAP}" == "false" ]]; then
         OPEN_PORTS="80,443,8080,8443"
     fi
 
-    if nmap -sV --version-light \
+    if run_logged nmap "${OUT_DIR}/nmap_console.txt" nmap -sV --version-light \
         --script "http-title,http-headers,ssl-cert" \
         -p "${OPEN_PORTS}" \
         --open \
@@ -379,9 +391,8 @@ if [[ "${SKIP_NMAP}" == "false" ]]; then
         -oX "${OUT_DIR}/nmap.xml" \
         --host-timeout 600s \
         --max-retries 2 \
-        "${TARGET_HOST}" 2>&1 \
-        | tee "${OUT_DIR}/nmap_console.txt"
-    then echo -e "nmap\t0" >> "${SCAN_STATUS_FILE}"; else echo -e "nmap\t1" >> "${SCAN_STATUS_FILE}"; warn "nmap failed or timed out"; fi
+        "${TARGET_HOST}"
+    then ok "nmap process finished"; else warn "nmap failed or timed out"; fi
     info "nmap step finished (see status)"
 else
     warn "Nmap skipped (--skip-nmap)"
@@ -394,13 +405,12 @@ section "7/18 — SSL/TLS Analysis"
 
 if [[ "${SKIP_SSL}" == "false" ]]; then
     info "testssl.sh..."
-    if testssl.sh \
+    if run_logged testssl.sh "${OUT_DIR}/testssl_console.txt" testssl.sh \
         --logfile "${OUT_DIR}/testssl.txt" \
         --jsonfile "${OUT_DIR}/testssl.json" \
         --severity LOW --quiet \
-        "${TARGET_URI}" 2>&1 \
-        | tee "${OUT_DIR}/testssl_console.txt"
-    then echo -e "testssl.sh\t0" >> "${SCAN_STATUS_FILE}"; else echo -e "testssl.sh\t1" >> "${SCAN_STATUS_FILE}"; warn "testssl.sh failed or timed out"; fi
+        "${TARGET_URI}"
+    then ok "testssl.sh process finished"; else warn "testssl.sh failed or timed out"; fi
     info "testssl.sh step finished (see status)"
 else
     warn "SSL/TLS analysis skipped (--skip-ssl)"
@@ -663,9 +673,11 @@ if [[ "${SKIP_SQLMAP}" == "false" ]]; then
         SQLMAP_ARGS+=(-m "${OUT_DIR}/endpoints.txt")
     fi
 
-    sqlmap "${SQLMAP_ARGS[@]}" 2>&1 \
-        | tee "${OUT_DIR}/sqlmap_console.txt" || true
-    ok "sqlmap done"
+    if run_logged sqlmap "${OUT_DIR}/sqlmap_console.txt" sqlmap "${SQLMAP_ARGS[@]}"; then
+        ok "sqlmap process finished"
+    else
+        warn "sqlmap failed; inspect console output"
+    fi
 else
     warn "sqlmap skipped (--skip-sqlmap)"
 fi
@@ -962,7 +974,12 @@ fi
 # -----------------------------------------------------------------------------
 section "WAF Fingerprint (optional)"
 if command -v wafw00f >/dev/null 2>&1; then
-    timeout 60 wafw00f "${TARGET_URI}" > "${OUT_DIR}/wafw00f.txt" 2>&1 || warn "WAF fingerprint incomplete"
+    if run_logged wafw00f "${OUT_DIR}/wafw00f_console.txt" \
+        timeout 60 wafw00f "${TARGET_URI}"; then
+        cp "${OUT_DIR}/wafw00f_console.txt" "${OUT_DIR}/wafw00f.txt"
+    else
+        warn "WAF fingerprint incomplete"
+    fi
 else
     warn "wafw00f not installed, skipping"
 fi
