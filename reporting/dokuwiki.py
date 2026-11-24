@@ -48,6 +48,12 @@ def export_report(out:Path, manifest:dict, findings:list, comparison=None):
         rows.append('Volledig en zonder fouten: '+('ja' if coverage.get('complete') else 'nee')+'.')
         rows.append(clean(coverage.get('reason','')))
     else:rows.append('Nuclei-dekking niet aantoonbaar of scanner uitgeschakeld.')
+    diagnosis=manifest.get('metrics',{}).get('nuclei_error_diagnostics',{})
+    rows.extend(['','===== Nuclei-foutdiagnose =====',
+                 'Classificatie: '+clean(diagnosis.get('classification','UNKNOWN'))+'.',
+                 'Niet-toegewezen requestfouten: '+clean(diagnosis.get('unattributed_request_errors','onbekend'))+'.',
+                 'Logsignalen (geen per-request telling): '+clean(', '.join(diagnosis.get('observed_log_signals',[])) or 'geen')+'.',
+                 clean(diagnosis.get('note','Geen betrouwbare foutattributie mogelijk.'))])
     rows.extend(['','===== Positieve controles en beperkingen ====='])
     rows.append('Voltooide technische controles: '+', '.join(clean(x['title']) for x in manifest['scanners'] if x['status']=='COMPLETED')+'.')
     for x in manifest['scanners']:
