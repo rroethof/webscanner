@@ -138,7 +138,7 @@ def main():
         'crawler_lines_not_validated':count_lines(out/'endpoints.txt'),
         'nuclei_findings':len(findings),
         'nuclei_coverage':coverage
-      },'limitations':['Exit codes are captured for Nmap, testssl.sh, Nuclei, and ZAP; other tools are not yet tracked consistently.',
+      },'limitations':['Exitcodes are captured for selected tools (including WhatWeb, httpx, DNSX, Naabu, Nmap, testssl.sh, Nikto, Katana, Arjun, Dalfox, SQLMap, Nuclei, ZAP and Wafw00f); remaining stages are not yet tracked consistently.',
        'OUTPUT_PRESENT does not mean a tool finished successfully.',
        'Nuclei scan comparison requires verified full coverage (no request errors).',
        'Nuclei is the only scanner parsed into normalized findings in this development release.',
