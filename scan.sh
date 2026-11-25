@@ -562,15 +562,11 @@ if [[ "${SKIP_CMS}" == "false" ]]; then
             --output "${OUT_DIR}/wpscan.json"
         )
         [[ -n "${WPSCAN_API_TOKEN:-}" ]] && WPSCAN_ARGS+=(--api-token "${WPSCAN_API_TOKEN}")
-        wpscan "${WPSCAN_ARGS[@]}" 2>&1 | tee "${OUT_DIR}/wpscan_console.txt" || true
-        wpscan --url "${TARGET_URI}" \
-            --enumerate vp,vt,u \
-            --plugins-detection mixed \
-            --no-banner \
-            ${WPSCAN_API_TOKEN:+--api-token "${WPSCAN_API_TOKEN}"} \
-            --output "${OUT_DIR}/wpscan.txt" \
-            2>/dev/null || true
-        ok "WPScan done"
+        if run_logged wpscan "${OUT_DIR}/wpscan_console.txt" wpscan "${WPSCAN_ARGS[@]}"; then
+            ok "WPScan process finished"
+        else
+            warn "WPScan failed or returned a non-zero status"
+        fi
     else
         warn "WordPress not detected — skipping WPScan"
         mark_status wpscan NOT_APPLICABLE "WordPress fingerprint not detected"
@@ -1030,16 +1026,15 @@ section "18/18 — OWASP ZAP"
 
 if [[ "${SKIP_ZAP}" == "false" ]]; then
     info "ZAP full scan (may take several minutes)..."
-    timeout 600 zap.sh -cmd \
+    if run_logged zap "${OUT_DIR}/zap_console.txt" \
+        timeout 600 zap.sh -cmd \
         -quickurl "${TARGET_URI}" \
         -quickout "${OUT_DIR}/zap_report.html" \
-        -quickprogress 2>&1 \
-        | tee "${OUT_DIR}/zap_console.txt" && {
-            printf 'zap\t0\n' >> "${SCAN_STATUS_FILE}"
-        } || {
-            printf 'zap\t1\n' >> "${SCAN_STATUS_FILE}"
-            warn "ZAP exited non-zero or hit 10 min timeout — partial results may exist"
-        }
+        -quickprogress; then
+        ok "ZAP process finished"
+    else
+        warn "ZAP exited non-zero or hit 10 min timeout; partial results may exist"
+    fi
     info "ZAP step finished (see status)"
 else
     warn "ZAP skipped (--skip-zap)"
