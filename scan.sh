@@ -386,9 +386,12 @@ section "3/18 — Subdomain Enumeration"
 
 if [[ "${SKIP_SUBDOMAINS}" == "false" ]]; then
     info "subfinder..."
-    subfinder -d "${TARGET_HOST}" -o "${OUT_DIR}/subdomains.txt" 2>&1 \
-        | tee "${OUT_DIR}/subfinder_console.txt" || true
-    ok "subfinder done"
+    if run_logged subfinder "${OUT_DIR}/subfinder_console.txt" \
+        subfinder -d "${TARGET_HOST}" -o "${OUT_DIR}/subdomains.txt"; then
+        ok "subfinder process finished"
+    else
+        warn "subfinder failed"
+    fi
 
     if [[ -s "${OUT_DIR}/subdomains.txt" ]]; then
         info "Probing live subdomains..."
@@ -614,19 +617,23 @@ fi
 if [[ "${SKIP_BRUTE}" == "false" ]]; then
     if [[ -n "${WORDLIST}" ]]; then
         info "gobuster..."
-        gobuster dir -u "${TARGET_URI}" -w "${WORDLIST}" \
-            -o "${OUT_DIR}/gobuster.txt" -k --timeout 10s \
-            --delay 100ms 2>&1 \
-            | tee "${OUT_DIR}/gobuster_console.txt" || true
-        ok "gobuster done"
+        if run_logged gobuster "${OUT_DIR}/gobuster_console.txt" \
+            gobuster dir -u "${TARGET_URI}" -w "${WORDLIST}" \
+            -o "${OUT_DIR}/gobuster.txt" -k --timeout 10s --delay 100ms; then
+            ok "gobuster process finished"
+        else
+            warn "gobuster failed"
+        fi
 
         info "ffuf..."
-        ffuf -u "${TARGET_URI}/FUZZ" -w "${WORDLIST}" \
+        if run_logged ffuf "${OUT_DIR}/ffuf_console.txt" \
+            ffuf -u "${TARGET_URI}/FUZZ" -w "${WORDLIST}" \
             -o "${OUT_DIR}/ffuf.json" -of json \
-            -mc 200,201,204,301,302,307,401,403 -timeout 10 \
-            -rate 50 2>&1 \
-            | tee "${OUT_DIR}/ffuf_console.txt" || true
-        ok "ffuf done"
+            -mc 200,201,204,301,302,307,401,403 -timeout 10 -rate 50; then
+            ok "ffuf process finished"
+        else
+            warn "ffuf failed"
+        fi
     else
         warn "No wordlist found — skipping gobuster and ffuf"
     fi
