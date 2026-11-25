@@ -116,8 +116,6 @@ def main():
     out=pathlib.Path(args.out).expanduser()
     if not out.is_dir():
         ap.error(f"--out must refer to an existing scan directory: {out}")
-    if not any((out / marker).is_file() for marker in ("scanner-exitcodes.tsv", "scanner-status.tsv", "scan.log", "nuclei_console.txt")):
-        ap.error(f"--out does not contain recognizable scan evidence: {out}")
 
     skipped=set(args.skipped)
     exitcodes={}
