@@ -7,6 +7,7 @@
 # =============================================================================
 
 set -euo pipefail
+umask 077  # Scan logs may contain URLs, session data or scanner evidence.
 
 # really only for reference
 VER='1.1.0-dev'
