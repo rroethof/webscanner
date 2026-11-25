@@ -159,6 +159,7 @@ COPY reporting/ /usr/local/lib/ronny-webscanner/reporting/
 
 # Scanner entrypoint
 COPY scripts/scope_filter.py /usr/local/lib/ronny-webscanner/scope_filter.py
+COPY scripts/stream_log.py /usr/local/lib/ronny-webscanner/stream_log.py
 COPY scan.sh /usr/local/bin/scan.sh
 RUN chmod +x /usr/local/bin/scan.sh \
     && /usr/local/bin/sqlmap --version \
