@@ -67,6 +67,28 @@ def nuclei_coverage(out):
     return {'observed':True,'complete':complete,'requests_completed':done,'requests_expected':total,
             'request_errors':errors,'coverage_percent':ratio,'unreachable':stopped,'reason':reason}
 
+def execution_log_summary(out):
+    """Summarize stage events without interpreting tool stdout as status."""
+    path=out/'events.jsonl'
+    result={'file':'events.jsonl','events':0,'finished_stages':0,'failed_stages':0}
+    if not path.is_file():
+        return result
+    for line in path.read_text(encoding='utf-8',errors='replace').splitlines():
+        try:
+            event=json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event,dict):
+            continue
+        result['events']+=1
+        if event.get('scanner')!='scan':
+            if event.get('event')=='completed':
+                result['finished_stages']+=1
+            elif event.get('event')=='failed':
+                result['failed_stages']+=1
+    return result
+
+
 def load_status_overrides(out):
     result={}
     path=out/'scanner-status.tsv'
@@ -135,10 +157,12 @@ def main():
     waf=classify_evidence(args.waf_evidence or out/'waf-evidence.json',args.target)
     from nuclei_diagnostics import diagnose
     nuclei_diagnostics=diagnose(out/'nuclei_console.txt',coverage)
+    execution_summary=execution_log_summary(out)
     manifest={
       'product':'Ronny WebScanner','upstream':{'name':'KP WebScanner','author':'Kevin Pirnie','repository':'https://github.com/kpirnie/webscanner','license':'MIT'},'version':args.version,'target':args.target,
       'profile':args.profile,'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
        'security_controls':{'crowdsec_appsec':waf},
+       'execution_log':execution_summary,
        'assessment_dimensions':{'execution':'SEE_SCANNERS','coverage':'SEE_NUCLEI_COVERAGE','security_control':waf['status']},
       'skipped_groups':sorted(skipped),'scanners':scans,'metrics':{
         'open_ports_lines': count_lines(out/'ports.txt'),
@@ -184,6 +208,7 @@ def main():
         body+=f'<p class="note">Nuclei-dekking: {coverage["requests_completed"]}/{coverage["requests_expected"]} requests ({coverage["coverage_percent"]}%), fouten: {coverage["request_errors"]}. {esc(coverage["reason"])}</p>'
     body+='<section id="diagnostics"><h2>🔍 Nuclei-foutdiagnose</h2><div class="panel"><div class="inside"><strong>'+esc(nuclei_diagnostics['classification'])+'</strong><p>Niet-toegewezen requestfouten: '+esc(str(nuclei_diagnostics['unattributed_request_errors']))+'</p><p>Logsignalen: '+esc(', '.join(nuclei_diagnostics['observed_log_signals']) or 'geen')+'</p><p>'+esc(nuclei_diagnostics['note'])+'</p></div></div></section>'
     body+='<section id="controls"><h2>🛡️ Security controls</h2><div class="panel"><div class="inside"><strong>CrowdSec AppSec: '+esc(waf['status'])+'</strong><p>'+esc(waf['note'])+'</p><p>HTTP 403 alone never proves CrowdSec enforcement. Scanner execution and coverage remain independent.</p></div></div></section>'
+    body+='<section id="logging"><h2>📋 Uitvoeringslog</h2><div class="panel"><div class="inside"><p>Gestructureerde gebeurtenissen: '+esc(str(execution_summary['events']))+' | Afgeronde stappen: '+esc(str(execution_summary['finished_stages']))+' | Foutief afgesloten stappen: '+esc(str(execution_summary['failed_stages']))+'</p><p><a href="events.jsonl">events.jsonl</a> bevat de afzonderlijke uitvoeringsgebeurtenissen. scan.log bevat de gecombineerde terminaluitvoer.</p></div></div></section>'
     body+='<section id="tools"><h2>🔎 Scannerstatussen</h2><input class="search" id="filter" placeholder="Zoek scanner of status..." aria-label="Zoek scanners"><div class="tabs"><button data-status="all" class="active">Alles</button><button data-status="COMPLETED">Completed</button><button data-status="OUTPUT_PRESENT">Bewijs</button><button data-status="FAILED">Failed</button><button data-status="PARTIAL">Review</button><button data-status="SKIPPED">Skipped</button><button data-status="NOT_APPLICABLE">N.v.t.</button><button data-status="UNVERIFIED">Onbevestigd</button></div><div class="panel" id="scanner-list">'
     for s in scans:
         links=''.join(f'<a href="{esc(n,quote=True)}">{esc(n)}</a>' for n in s['files'] if n not in {'scan.log'})
