@@ -24,6 +24,12 @@ class TimestampLoggingTests(unittest.TestCase):
                                 input="hello\n", text=True, capture_output=True, check=True)
         self.assertEqual(result.stdout, "hello\n")
 
+    def test_invalid_utf8_does_not_break_logging(self):
+        result = subprocess.run([sys.executable, str(SCRIPT)],
+                                input=b"test:\xff\n", capture_output=True, check=True)
+        self.assertIn(b"test:", result.stdout)
+        self.assertTrue(result.stdout.endswith(b"\n"))
+
     def test_empty_stream_is_empty(self):
         result = subprocess.run([sys.executable, str(SCRIPT)],
                                 input="", text=True, capture_output=True, check=True)
