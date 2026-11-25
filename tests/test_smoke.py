@@ -14,8 +14,8 @@ class ReportingSmoke(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=pathlib.Path(d)
             (p/'events.jsonl').write_text(
-                '{"timestamp":"2026-11-25T08:00:00Z","scanner":"nuclei","event":"started"}\\n'
-                '{"timestamp":"2026-11-25T08:00:05Z","scanner":"nuclei","event":"failed","exit_code":2,"duration_seconds":5}\\n'
+                '{"timestamp":"2026-11-25T08:00:00Z","scanner":"nuclei","event":"started"}\n'
+                '{"timestamp":"2026-11-25T08:00:05Z","scanner":"nuclei","event":"failed","exit_code":2,"duration_seconds":5}\n'
             )
             subprocess.run([sys.executable,str(SCRIPT),'--out',d,'--target','https://example.org'],
                            check=True,stdout=subprocess.DEVNULL)
