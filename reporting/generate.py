@@ -110,7 +110,15 @@ def main():
     ap.add_argument('--profile',default='extended');ap.add_argument('--version',default='dev')
     ap.add_argument('--skipped',action='append',default=[]);ap.add_argument('--previous',default=None)
     ap.add_argument('--waf-evidence',default=None,help='JSON with manually correlated CrowdSec and proxy log evidence')
-    args=ap.parse_args();out=pathlib.Path(args.out);out.mkdir(parents=True,exist_ok=True)
+    args=ap.parse_args()
+    if not args.out.strip():
+        ap.error("--out requires a non-empty existing scan directory")
+    out=pathlib.Path(args.out).expanduser()
+    if not out.is_dir():
+        ap.error(f"--out must refer to an existing scan directory: {out}")
+    if not any((out / marker).is_file() for marker in ("scanner-exitcodes.tsv", "scanner-status.tsv", "scan.log", "nuclei_console.txt")):
+        ap.error(f"--out does not contain recognizable scan evidence: {out}")
+
     skipped=set(args.skipped)
     exitcodes={}
     exit_file=out/'scanner-exitcodes.tsv'
