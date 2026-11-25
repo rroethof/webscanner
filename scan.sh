@@ -50,6 +50,7 @@ ${BOLD}Options:${RESET}
   --severity LEVEL      Nuclei severity filter (default: low,medium,high,critical)
   --profile NAME        baseline | webapp | extended (default: extended)
   --check-deps          Check tool availability and exit
+  --no-log-timestamps   Do not prefix combined scan.log with UTC timestamps
   --previous DIR        Compare with previous run directory (mounted inside container)
   --nuclei-rate N       Nuclei requests/second (baseline/webapp: 10, extended: 20)
   --nuclei-concurrency N Concurrent Nuclei templates (baseline/webapp: 3, extended: 5)
@@ -126,6 +127,7 @@ SAMPLE_SIZE=50
 NUCLEI_RATE=""
 NUCLEI_CONCURRENCY=""
 ALLOW_OAST=false
+LOG_TIMESTAMPS=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -136,6 +138,7 @@ while [[ $# -gt 0 ]]; do
         --nuclei-rate)       [[ $# -ge 2 ]] || { echo "--nuclei-rate requires a number" >&2; exit 2; }; NUCLEI_RATE="$2"; shift ;;
         --nuclei-concurrency) [[ $# -ge 2 ]] || { echo "--nuclei-concurrency requires a number" >&2; exit 2; }; NUCLEI_CONCURRENCY="$2"; shift ;;
         --allow-oast)        ALLOW_OAST=true ;;
+        --no-log-timestamps) LOG_TIMESTAMPS=false ;;
         --skip-fingerprint)  SKIP_FINGERPRINT=true ;;
         --skip-recon)        SKIP_RECON=true ;;
         --skip-subdomains)   SKIP_SUBDOMAINS=true ;;
@@ -220,6 +223,9 @@ if [[ -n "${OUTPUT_PATH}" ]]; then
     restore_output_ownership() {
         local result=$?
         trap - EXIT
+        if declare -F log_event >/dev/null 2>&1; then
+            log_event scan finished "$result" || true
+        fi
         if [[ -n "${SCAN_OUTPUT_UID:-}" && -n "${SCAN_OUTPUT_GID:-}" ]]; then
             chown -R -- "${SCAN_OUTPUT_UID}:${SCAN_OUTPUT_GID}" "${OUT_DIR}" ||
                 printf 'Warning: could not restore scan file ownership\n' >&2
@@ -229,10 +235,23 @@ if [[ -n "${OUTPUT_PATH}" ]]; then
         return "$result"
     }
     trap restore_output_ownership EXIT
-    exec > >(tee -a "${OUT_DIR}/scan.log") 2>&1
 else
     OUT_DIR="/tmp/${SCAN_NAME}"
     mkdir -p "${OUT_DIR}"
+fi
+
+mkdir -p "${OUT_DIR}/logs"
+EVENTS_FILE="${OUT_DIR}/events.jsonl"
+: > "${EVENTS_FILE}"
+LOGGING_SCRIPT="/usr/local/lib/ronny-webscanner/stream_log.py"
+if [[ -f "${LOGGING_SCRIPT}" ]]; then
+    if [[ "${LOG_TIMESTAMPS}" == true ]]; then
+        exec > >(python3 -u "${LOGGING_SCRIPT}" | tee -a "${OUT_DIR}/scan.log") 2>&1
+    else
+        exec > >(python3 -u "${LOGGING_SCRIPT}" --no-timestamps | tee -a "${OUT_DIR}/scan.log") 2>&1
+    fi
+elif [[ -n "${OUTPUT_PATH}" ]]; then
+    exec > >(tee -a "${OUT_DIR}/scan.log") 2>&1
 fi
 
 SCAN_STATUS_FILE="${OUT_DIR}/scanner-exitcodes.tsv"
@@ -244,12 +263,37 @@ mark_status() { # scanner, COMPLETED/PARTIAL/FAILED/NOT_APPLICABLE, note
     note="${note//$'\t'/ }"; note="${note//$'\n'/ }"
     printf '%s\t%s\t%s\n' "$key" "$state" "$note" >> "$SCAN_OVERRIDES_FILE"
 }
-# Store exit code from first command in pipeline. Never report success from tee.
+# Append one JSON object per event. Never include command arguments or secrets.
+log_event() {
+    local tool="$1" state="$2" rc="${3:-}" duration="${4:-}"
+    local ts
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    jq -cn --arg timestamp "$ts" --arg scanner "$tool" --arg event "$state" \
+       --arg exit_code "$rc" --arg duration_seconds "$duration" '
+       {timestamp:$timestamp, scanner:$scanner, event:$event}
+       + (if $exit_code == "" then {} else {exit_code:($exit_code|tonumber)} end)
+       + (if $duration_seconds == "" then {} else {duration_seconds:($duration_seconds|tonumber)} end)
+       ' >> "${EVENTS_FILE}"
+}
+log_event scan started
+# Capture the actual scanner exit status before writing structured events.
 run_logged() {
-    local key="$1" log="$2" rc
+    local key="$1" log="$2" rc start elapsed
     shift 2
-    if "$@" 2>&1 | tee "$log"; then rc=0; else rc=${PIPESTATUS[0]}; fi
+    start="$(date +%s)"
+    log_event "$key" started
+    if "$@" 2>&1 | tee "$log" "${OUT_DIR}/logs/${key}.log"; then
+        rc=0
+    else
+        rc=${PIPESTATUS[0]}
+    fi
+    elapsed=$(( $(date +%s) - start ))
     printf '%s\t%s\n' "$key" "$rc" >> "$SCAN_STATUS_FILE"
+    if (( rc == 0 )); then
+        log_event "$key" completed "$rc" "$elapsed"
+    else
+        log_event "$key" failed "$rc" "$elapsed"
+    fi
     return "$rc"
 }
 
