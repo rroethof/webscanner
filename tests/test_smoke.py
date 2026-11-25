@@ -10,6 +10,20 @@ class ReportingSmoke(unittest.TestCase):
             self.assertEqual([x for x in m['scanners'] if x['name']=='zap'][0]['status'],'SKIPPED')
             page=(pathlib.Path(d)/'report.html').read_text()
             self.assertNotIn('cdnjs.cloudflare.com',page)
+    def test_execution_log_is_summarized(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=pathlib.Path(d)
+            (p/'events.jsonl').write_text(
+                '{"timestamp":"2026-11-25T08:00:00Z","scanner":"nuclei","event":"started"}\\n'
+                '{"timestamp":"2026-11-25T08:00:05Z","scanner":"nuclei","event":"failed","exit_code":2,"duration_seconds":5}\\n'
+            )
+            subprocess.run([sys.executable,str(SCRIPT),'--out',d,'--target','https://example.org'],
+                           check=True,stdout=subprocess.DEVNULL)
+            m=json.loads((p/'scan-manifest.json').read_text())
+            self.assertEqual(m['execution_log']['events'],2)
+            self.assertEqual(m['execution_log']['failed_stages'],1)
+            self.assertIn('events.jsonl',(p/'report.html').read_text())
+
     def test_empty_output_path_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             run=subprocess.run([sys.executable,str(SCRIPT),'--out','','--target','https://example.org'],
