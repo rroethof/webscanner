@@ -103,8 +103,11 @@ De scanner maakt per run een map met de ruwe tooluitvoer en aanvullende rapporta
 
 | Bestand | Inhoud |
 | --- | --- |
-| `scan.log` | Log van de scan |
-| `scanner-exitcodes.tsv` | Vastgelegde exitcodes van geselecteerde tools |
+| `scan.log` | Gecombineerde uitvoer, standaard met UTC-tijdstempel per regel |
+| `events.jsonl` | JSON Lines: start en afloop per gemeten scanner, exitcode en duur in seconden |
+| `logs/*.log` | Afzonderlijke, volledige stdout/stderr-uitvoer van scanners die `run_logged` gebruiken |
+| `*_console.txt` | Bestaande scannerlogs blijven behouden voor rapportage en foutdiagnose |
+| `scanner-exitcodes.tsv` | Werkelijke exitcodes van geregistreerde scannerprocessen |
 | `scanner-status.tsv` | Expliciete statuscorrecties, zoals `PARTIAL` en `NOT_APPLICABLE` |
 | `scan-manifest.json` | Doel, profiel, scannerstatussen, dekking en beperkingen |
 | `findings.json` | Genormaliseerde Nuclei-bevindingen |
@@ -114,6 +117,21 @@ De scanner maakt per run een map met de ruwe tooluitvoer en aanvullende rapporta
 | `comparison.json` | Vergelijking met een eerdere scan, indien aangevraagd |
 
 De rapportgenerator verwerkt op dit moment alleen Nuclei-bevindingen tot genormaliseerde findings. Andere tooluitvoer blijft als technisch bewijs beschikbaar.
+
+### Uitvoeringslogging
+
+Standaard krijgt elke regel in `scan.log` een UTC-tijdstempel. De uitvoer blijft tegelijkertijd live in de terminal zichtbaar. Met `--no-log-timestamps` schakel je alleen de tijdstempels van de gecombineerde tekstuitvoer uit; `events.jsonl` houdt altijd gestructureerde tijdstempels.
+
+Scanners die via `run_logged` lopen hebben een eigen logbestand onder `logs/`, een begin- en eindgebeurtenis en hun werkelijke exitcode. Per stap wordt ook de verstreken tijd in hele seconden opgeslagen. De ruwe resultaten zoals `nuclei.json`, `ports.txt` en `testssl.json` blijven ongewijzigd. Sommige samengestelde stappen, zoals de botblocker-controle en OSV-scanning, gebruiken nog eigen uitvoerbestanden; die zijn nog niet volledig opgenomen in de gestructureerde eventregistratie.
+
+Een voorbeeld van `events.jsonl`:
+
+```json
+{"timestamp":"2026-11-25T08:00:00Z","scanner":"nuclei","event":"started"}
+{"timestamp":"2026-11-25T08:01:10Z","scanner":"nuclei","event":"completed","exit_code":0,"duration_seconds":70}
+```
+
+Nieuwe scanmappen en logs worden standaard aangemaakt met beperkte bestandsrechten (`umask 077`). Scanneruitvoer kan gevoelige URL's, tokens of sessiegegevens bevatten. Logs worden daarom niet automatisch gepubliceerd of geredigeerd. Controleer ze vóór delen of uploaden. Retentie, checksums en automatische geheimenmaskering zijn nog niet geïmplementeerd.
 
 ### Scannerstatussen
 
