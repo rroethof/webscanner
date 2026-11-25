@@ -36,6 +36,12 @@ def export_report(out:Path, manifest:dict, findings:list, comparison=None):
                     ', CrowdSec-bewijs: '+clean(event.get('crowdsec_alert_reference',''))+
                     ', proxybewijs: '+clean(event.get('proxy_log_reference','')))
     rows.append('Een HTTP 403 zonder gekoppeld CrowdSec-alert en reverse-proxybewijs is geen bewezen CrowdSec-blokkering.')
+    execution=manifest.get('execution_log',{})
+    rows.extend(['', '===== Uitvoeringslogging =====',
+                 'Gestructureerde gebeurtenissen: '+clean(execution.get('events',0))+'.',
+                 'Afgeronde scanners: '+clean(execution.get('finished_stages',0))+'.',
+                 'Scanners met foutcode: '+clean(execution.get('failed_stages',0))+'.',
+                 'Voor volledige uitvoer: scan.log, events.jsonl, logs/ en de originele scanneroutput.'])
     rows.extend(['','===== Nuclei-bevindingen =====','',
                  '^ Severity ^ Omschrijving ^ Getroffen URL ^ Referentie ^'])
     for f in findings:
@@ -78,6 +84,8 @@ def export_report(out:Path, manifest:dict, findings:list, comparison=None):
                  '  * scan-manifest.json (scannerstatussen en scope)',
                  '  * findings.json (genormaliseerde Nuclei-bevindingen)',
                  '  * report.html (offline dashboard)',
+                 '  * events.jsonl (uitvoeringsgebeurtenissen, exitcodes en duur)',
+                 '  * scan.log en logs/ (volledige logging, waar beschikbaar)',
                  '  * originele scanneroutputs (onbewerkte technische resultaten)',
                  '', '===== Beperkingen ====='])
     for item in manifest.get('limitations',[]):rows.append('  * '+clean(item))
