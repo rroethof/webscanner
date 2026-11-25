@@ -203,8 +203,32 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCAN_NAME="${TARGET_HOST}_${TIMESTAMP}"
 
 if [[ -n "${OUTPUT_PATH}" ]]; then
+    # A single folder name only: prevent traversal outside the mounted output.
+    if [[ ! "${OUTPUT_PATH}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "${OUTPUT_PATH}" == *..* ]]; then
+        printf 'Invalid -o name: use a single safe directory name\n' >&2
+        exit 2
+    fi
+    # Optional host ownership restoration; scanner processes still run as root.
+    if [[ -n "${SCAN_OUTPUT_UID:-}${SCAN_OUTPUT_GID:-}" ]]; then
+        if [[ ! "${SCAN_OUTPUT_UID:-}" =~ ^[0-9]+$ || ! "${SCAN_OUTPUT_GID:-}" =~ ^[0-9]+$ ]]; then
+            printf 'SCAN_OUTPUT_UID and SCAN_OUTPUT_GID must both be numeric\n' >&2
+            exit 2
+        fi
+    fi
     OUT_DIR="/output/${OUTPUT_PATH}/${SCAN_NAME}"
     mkdir -p "${OUT_DIR}"
+    restore_output_ownership() {
+        local result=$?
+        trap - EXIT
+        if [[ -n "${SCAN_OUTPUT_UID:-}" && -n "${SCAN_OUTPUT_GID:-}" ]]; then
+            chown -R -- "${SCAN_OUTPUT_UID}:${SCAN_OUTPUT_GID}" "${OUT_DIR}" ||
+                printf 'Warning: could not restore scan file ownership\n' >&2
+            chown -- "${SCAN_OUTPUT_UID}:${SCAN_OUTPUT_GID}" "/output/${OUTPUT_PATH}" ||
+                printf 'Warning: could not restore scan directory ownership\n' >&2
+        fi
+        return "$result"
+    }
+    trap restore_output_ownership EXIT
     exec > >(tee -a "${OUT_DIR}/scan.log") 2>&1
 else
     OUT_DIR="/tmp/${SCAN_NAME}"
