@@ -30,6 +30,7 @@ mkdir -p results
 docker run --rm --network host \
   --cap-add NET_ADMIN --cap-add NET_RAW \
   -v "$PWD/results:/output" \
+  -e SCAN_OUTPUT_UID="$(id -u)" -e SCAN_OUTPUT_GID="$(id -g)" \
   ronny-webscanner:1.1.0-dev \
   https://example.org --profile baseline -o example
 ```
@@ -40,6 +41,7 @@ Voor een webapp-assessment:
 docker run --rm --network host \
   --cap-add NET_ADMIN --cap-add NET_RAW \
   -v "$PWD/results:/output" \
+  -e SCAN_OUTPUT_UID="$(id -u)" -e SCAN_OUTPUT_GID="$(id -g)" \
   ronny-webscanner:1.1.0-dev \
   https://example.org --profile webapp \
   --skip-sqlmap --skip-zap --skip-botblocker \
@@ -47,6 +49,10 @@ docker run --rm --network host \
 ```
 
 Vervang `example.org` door het geautoriseerde doel. De voorbeelden gebruiken `--network host` en netwerkcapabilities om de netwerktools binnen Docker te kunnen gebruiken. Controleer of deze rechten in jouw omgeving nodig en toegestaan zijn.
+
+De container voert de scanners nog steeds als root uit. Met `SCAN_OUTPUT_UID` en `SCAN_OUTPUT_GID` zet het scanproces bij normale beëindiging de eigendom van de nieuw aangemaakte scanmap terug naar de hostgebruiker. Bij abrupt afbreken (bijvoorbeeld `docker kill -s KILL`) kan herstel van bestandsrechten alsnog nodig zijn. Gebruik bij `-o` uitsluitend één mapnaam, zonder padcomponenten.
+
+Een bestaand rapport opnieuw genereren kan vanuit de host met `python3 reporting/generate.py --out /pad/naar/bestaande/scanmap --target https://example.org`. Een lege of niet-bestaande `--out` wordt geweigerd; bestaande scanmappen worden niet automatisch aangemaakt.
 
 ## Scanprofielen en opties
 
@@ -162,6 +168,7 @@ Gebruik `--previous` en zorg dat de eerdere scanmap via dezelfde Docker-volume b
 docker run --rm --network host \
   --cap-add NET_ADMIN --cap-add NET_RAW \
   -v "$PWD/results:/output" \
+  -e SCAN_OUTPUT_UID="$(id -u)" -e SCAN_OUTPUT_GID="$(id -g)" \
   ronny-webscanner:1.1.0-dev \
   https://example.org --profile baseline -o example \
   --previous /output/example/example.org_20261123_190000
