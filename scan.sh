@@ -357,8 +357,13 @@ if [[ "${SKIP_RECON}" == "false" ]]; then
         info "Shodan lookup..."
         if [[ -n "${TARGET_IP}" ]]; then
             shodan init "${SHODAN_API_KEY}" &>/dev/null
-            shodan host "${TARGET_IP}" > "${OUT_DIR}/shodan.txt" 2>&1 || true
-            ok "Shodan done → ${OUT_DIR}/shodan.txt"
+            if run_logged shodan "${OUT_DIR}/shodan_console.txt" \
+                shodan host "${TARGET_IP}"; then
+                cp "${OUT_DIR}/shodan_console.txt" "${OUT_DIR}/shodan.txt"
+                ok "Shodan process finished"
+            else
+                warn "Shodan lookup failed"
+            fi
         else
             warn "Could not resolve ${TARGET_HOST} for Shodan"
         fi
@@ -368,10 +373,14 @@ if [[ "${SKIP_RECON}" == "false" ]]; then
 
     if [[ -n "${CENSYS_APP_ID:-}" && -n "${CENSYS_TOKEN:-}" ]]; then
         info "Censys lookup..."
-        curl -s -H "Authorization: Bearer ${CENSYS_TOKEN}" \
+        if run_logged censys "${OUT_DIR}/censys_console.txt" \
+            curl -fsS -H "Authorization: Bearer ${CENSYS_TOKEN}" \
             "https://search.censys.io/api/v2/hosts/${TARGET_IP:-${TARGET_HOST}}" \
-            > "${OUT_DIR}/censys.txt" 2>&1 || true
-        ok "Censys done → ${OUT_DIR}/censys.txt"
+            -o "${OUT_DIR}/censys.txt"; then
+            ok "Censys process finished"
+        else
+            warn "Censys lookup failed"
+        fi
     else
         warn "CENSYS_APP_ID/CENSYS_TOKEN not set — skipping Censys (free at censys.io)"
     fi
@@ -395,10 +404,14 @@ if [[ "${SKIP_SUBDOMAINS}" == "false" ]]; then
 
     if [[ -s "${OUT_DIR}/subdomains.txt" ]]; then
         info "Probing live subdomains..."
-        cat "${OUT_DIR}/subdomains.txt" | httpx \
+        if run_logged subdomain-httpx "${OUT_DIR}/subdomain_httpx_console.txt" \
+            httpx -l "${OUT_DIR}/subdomains.txt" \
             -title -tech-detect -status-code \
-            -o "${OUT_DIR}/subdomains_live.txt" 2>&1 || true
-        ok "Subdomain probe done"
+            -o "${OUT_DIR}/subdomains_live.txt"; then
+            ok "Subdomain probe finished"
+        else
+            warn "Subdomain probe failed"
+        fi
     fi
 else
     warn "Subdomain enumeration skipped (--skip-subdomains)"
@@ -496,18 +509,23 @@ section "8/18 — HTTP Security Headers (Mozilla Observatory)"
 if [[ "${SKIP_HEADERS}" == "false" ]]; then
     info "observatory..."
     if command -v mdn-http-observatory-scan &>/dev/null; then
-        mdn-http-observatory-scan "${TARGET_HOST}" \
-            > "${OUT_DIR}/observatory.json" \
-            2> "${OUT_DIR}/observatory_error.txt" || true
-        ok "observatory done"
+        if run_logged observatory "${OUT_DIR}/observatory_console.txt" \
+            bash -c 'mdn-http-observatory-scan "$1" > "$2"' bash \
+            "${TARGET_HOST}" "${OUT_DIR}/observatory.json"; then
+            ok "observatory process finished"
+        else
+            warn "observatory failed"
+        fi
     else
         info "observatory CLI not found, querying MDN API..."
-        curl -sf --max-time 30 \
-            -X POST \
+        if run_logged observatory "${OUT_DIR}/observatory_console.txt" \
+            curl -fsS --max-time 30 -X POST \
             "https://observatory-api.mdn.mozilla.net/api/v2/scan?host=${TARGET_HOST}" \
-            -o "${OUT_DIR}/observatory.json" \
-            2> "${OUT_DIR}/observatory_error.txt" || true
-        ok "observatory done (API fallback)"
+            -o "${OUT_DIR}/observatory.json"; then
+            ok "observatory API request finished"
+        else
+            warn "observatory API request failed"
+        fi
     fi
 else
     warn "HTTP header analysis skipped (--skip-headers)"
