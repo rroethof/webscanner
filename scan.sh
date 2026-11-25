@@ -239,6 +239,7 @@ if [[ -n "${OUTPUT_PATH}" ]]; then
 else
     OUT_DIR="/tmp/${SCAN_NAME}"
     mkdir -p "${OUT_DIR}"
+    trap 'result=$?; if declare -F log_event >/dev/null 2>&1; then log_event scan finished "$result" || true; fi' EXIT
 fi
 
 mkdir -p "${OUT_DIR}/logs"
