@@ -10,6 +10,23 @@ class ReportingSmoke(unittest.TestCase):
             self.assertEqual([x for x in m['scanners'] if x['name']=='zap'][0]['status'],'SKIPPED')
             page=(pathlib.Path(d)/'report.html').read_text()
             self.assertNotIn('cdnjs.cloudflare.com',page)
+    def test_empty_output_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            run=subprocess.run([sys.executable,str(SCRIPT),'--out','','--target','https://example.org'],
+                               cwd=d,capture_output=True,text=True)
+            self.assertNotEqual(run.returncode,0)
+            self.assertIn('non-empty',run.stderr)
+            self.assertFalse((pathlib.Path(d)/'scan-manifest.json').exists())
+
+    def test_missing_output_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            missing=pathlib.Path(d)/'deleted-scan'
+            run=subprocess.run([sys.executable,str(SCRIPT),'--out',str(missing),'--target','https://example.org'],
+                               cwd=d,capture_output=True,text=True)
+            self.assertNotEqual(run.returncode,0)
+            self.assertFalse(missing.exists())
+            self.assertFalse((pathlib.Path(d)/'scan-manifest.json').exists())
+
     def test_nuclei_jsonl_and_exitcode(self):
         with tempfile.TemporaryDirectory() as d:
             p=pathlib.Path(d)
